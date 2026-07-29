@@ -1,28 +1,98 @@
 /**
  * MeetMind Executive PDF Engine
- * Layout Engine — Release 0.2 / Iteration 1
+ * Layout Engine — v1.0.0
  *
  * Responsibility:
- *   Convert a CompositionResult into deterministic page geometry.
+ *   Convert a strict CompositionResult into deterministic page geometry.
+ *
+ * Input contract:
+ *   CompositionResult {
+ *     pages: CompositionPage[]
+ *   }
+ *
+ *   CompositionPage {
+ *     id?: string,
+ *     number?: number,
+ *     template?: string,
+ *     density?: 'regular' | 'compact' | 'dense' | 'truncated',
+ *     blocks: CompositionBlock[]
+ *   }
+ *
+ *   CompositionBlock {
+ *     id: string,
+ *     data: unknown,
+ *     itemCount: number,
+ *     textLength: number,
+ *     mass: number,
+ *     density: string,
+ *     visible: boolean,
+ *     required: boolean,
+ *     layout: null
+ *   }
+ *
+ * Output contract:
+ *   LayoutResult contains the same logical block model enriched with:
+ *
+ *   block.layout = {
+ *     pageNumber,
+ *     region,
+ *     column,
+ *     order,
+ *     role,
+ *     fits,
+ *     geometry: { x, y, width, height }
+ *   }
  *
  * Explicitly out of scope:
  *   - report_json normalization
  *   - visibility decisions
  *   - business priority
  *   - pagination decisions
- *   - text rendering
+ *   - exact glyph measurement
  *   - PDF drawing
  *
- * Browser usage:
+ * Browser:
  *   const result = MeetMindLayoutEngine.layout(compositionResult, options);
  *
- * ES module usage is intentionally not required for the MVP.
+ * CommonJS:
+ *   const LayoutEngine = require('./layout-engine');
  */
+
 (function attachMeetMindLayoutEngine(globalScope) {
     'use strict';
 
     const ENGINE_NAME = 'MeetMindLayoutEngine';
-    const ENGINE_VERSION = '0.3.0';
+    const ENGINE_VERSION = '1.0.0';
+
+    const BLOCK_IDS = Object.freeze([
+        'header',
+        'stats',
+        'summary',
+        'metrics',
+        'insights',
+        'decisions',
+        'risks',
+        'tasks',
+        'architecture',
+        'owners',
+        'footer'
+    ]);
+
+    const BLOCK_ID_SET = new Set(BLOCK_IDS);
+
+    const SERVICE_IDS = new Set([
+        'header',
+        'stats',
+        'footer'
+    ]);
+
+    const EXECUTIVE_IDS = new Set([
+        'summary',
+        'metrics',
+        'insights',
+        'decisions',
+        'risks'
+    ]);
 
     const DEFAULT_PAGE = Object.freeze({
         width: 1600,
@@ -99,21 +169,6 @@
         footer: 24
     });
 
-    const EXECUTIVE_IDS = new Set([
-        'summary',
-        'metrics',
-        'insights',
-        'decisions',
-        'risks'
-    ]);
-
-    const SERVICE_IDS = new Set([
-        'header',
-        'stats',
-        'footer'
-    ]);
-
-
     const TEMPLATE_CONFIG = Object.freeze({
         'vertical-flow': Object.freeze({
             columns: 1,
@@ -174,55 +229,50 @@
         if (typeof structuredClone === 'function') {
             return structuredClone(value);
         }
+
+        if (value === undefined) {
+            return undefined;
+        }
+
         return JSON.parse(JSON.stringify(value));
     }
 
-    function normalizeId(value) {
+    function normalizeToken(value) {
         return String(value || '')
             .trim()
             .toLowerCase()
             .replace(/[\s_]+/g, '-');
     }
 
-    function canonicalBlockId(value) {
-        const id = normalizeId(value);
-        const aliases = {
-            'meeting-statistics': 'stats',
-            'meeting-stats': 'stats',
-            'executive-summary': 'summary',
-            'key-metrics': 'metrics',
-            'responsibles': 'owners',
-            'responsible': 'owners'
-        };
-        return aliases[id] || id;
-    }
-
-    function resolveDensity(page, composition, options) {
-        const raw = (
-            page?.density ||
-            composition?.density ||
-            options?.density ||
-            'regular'
-        );
-        const density = normalizeId(raw);
-        return DEFAULT_DENSITY[density] ? density : 'regular';
-    }
-
     function normalizePageConfig(options) {
-        const source = isPlainObject(options?.page) ? options.page : {};
-        const marginSource = isPlainObject(source.margin) ? source.margin : {};
-
-        const margin = {
-            top: finiteNumber(marginSource.top, DEFAULT_PAGE.margin.top),
-            right: finiteNumber(marginSource.right, DEFAULT_PAGE.margin.right),
-            bottom: finiteNumber(marginSource.bottom, DEFAULT_PAGE.margin.bottom),
-            left: finiteNumber(marginSource.left, DEFAULT_PAGE.margin.left)
-        };
+        const source = isPlainObject(options?.page)
+            ? options.page
+            : {};
+        const marginSource = isPlainObject(source.margin)
+            ? source.margin
+            : {};
 
         return {
             width: positiveNumber(source.width, DEFAULT_PAGE.width),
             height: positiveNumber(source.height, DEFAULT_PAGE.height),
-            margin,
+            margin: {
+                top: finiteNumber(
+                    marginSource.top,
+                    DEFAULT_PAGE.margin.top
+                ),
+                right: finiteNumber(
+                    marginSource.right,
+                    DEFAULT_PAGE.margin.right
+                ),
+                bottom: finiteNumber(
+                    marginSource.bottom,
+                    DEFAULT_PAGE.margin.bottom
+                ),
+                left: finiteNumber(
+                    marginSource.left,
+                    DEFAULT_PAGE.margin.left
+                )
+            },
             headerHeight: positiveNumber(
                 source.headerHeight,
                 DEFAULT_PAGE.headerHeight
@@ -243,7 +293,10 @@
                 source.columnGap,
                 DEFAULT_PAGE.columnGap
             ),
-            rowGap: finiteNumber(source.rowGap, DEFAULT_PAGE.rowGap),
+            rowGap: finiteNumber(
+                source.rowGap,
+                DEFAULT_PAGE.rowGap
+            ),
             cardRadius: finiteNumber(
                 source.cardRadius,
                 DEFAULT_PAGE.cardRadius
@@ -251,89 +304,205 @@
         };
     }
 
-   function extractCompositionPages(composition) {
-    if (!isPlainObject(composition)) {
-        throw new LayoutError(
-            'INVALID_COMPOSITION',
-            'CompositionResult must be an object.'
-        );
+    function extractCompositionPages(composition) {
+        if (!isPlainObject(composition)) {
+            throw new LayoutError(
+                'INVALID_COMPOSITION',
+                'CompositionResult must be an object.'
+            );
+        }
+
+        if (!Array.isArray(composition.pages)) {
+            throw new LayoutError(
+                'INVALID_COMPOSITION',
+                'CompositionResult.pages must be an array.'
+            );
+        }
+
+        if (composition.pages.length === 0) {
+            throw new LayoutError(
+                'EMPTY_COMPOSITION',
+                'CompositionResult.pages must contain at least one page.'
+            );
+        }
+
+        return composition.pages;
     }
 
-    if (!Array.isArray(composition.pages)) {
-        throw new LayoutError(
-            'INVALID_COMPOSITION',
-            'CompositionResult.pages must be an array.'
-        );
+    function assertCompositionPage(page, pageIndex) {
+        if (!isPlainObject(page)) {
+            throw new LayoutError(
+                'INVALID_PAGE',
+                `Page at index ${pageIndex} must be an object.`,
+                { pageIndex, page }
+            );
+        }
+
+        if (!Array.isArray(page.blocks)) {
+            throw new LayoutError(
+                'INVALID_PAGE_BLOCKS',
+                `Page at index ${pageIndex} must contain blocks[].`,
+                { pageIndex }
+            );
+        }
+
+        return page;
     }
 
-    return composition.pages;
-}
+    function assertCompositionBlock(block, blockIndex, pageIndex) {
+        if (!isPlainObject(block)) {
+            throw new LayoutError(
+                'INVALID_BLOCK',
+                `Block at page ${pageIndex + 1}, index ${blockIndex} must be an object.`,
+                { pageIndex, blockIndex, block }
+            );
+        }
 
-    function extractPageBlocks(page) {
-        if (Array.isArray(page?.blocks)) {
-            return page.blocks;
+        if (typeof block.id !== 'string' || !block.id.trim()) {
+            throw new LayoutError(
+                'MISSING_BLOCK_ID',
+                `Block at page ${pageIndex + 1}, index ${blockIndex} must have id.`,
+                { pageIndex, blockIndex }
+            );
         }
-        if (Array.isArray(page?.sections)) {
-            return page.sections;
+
+        const id = normalizeToken(block.id);
+
+        if (!BLOCK_ID_SET.has(id)) {
+            throw new LayoutError(
+                'UNKNOWN_BLOCK_ID',
+                `Unsupported CompositionBlock id "${block.id}".`,
+                {
+                    pageIndex,
+                    blockIndex,
+                    blockId: block.id,
+                    allowed: BLOCK_IDS
+                }
+            );
         }
-        if (Array.isArray(page?.items)) {
-            return page.items;
+
+        if (block.layout !== null && block.layout !== undefined) {
+            throw new LayoutError(
+                'BLOCK_ALREADY_LAID_OUT',
+                `CompositionBlock "${id}" must enter Layout Engine with layout: null.`,
+                { pageIndex, blockIndex, blockId: id }
+            );
         }
+
+        return {
+            ...block,
+            id,
+            sourceIndex: blockIndex
+        };
+    }
+
+    function resolveDensity(page, composition, options) {
+        const raw =
+            page?.density ||
+            composition?.density ||
+            options?.density ||
+            'regular';
+
+        const density = normalizeToken(raw);
+
+        return DEFAULT_DENSITY[density]
+            ? density
+            : 'regular';
+    }
+
+    function resolveDensityTokens(density, options) {
+        const override = isPlainObject(options?.densityTokens?.[density])
+            ? options.densityTokens[density]
+            : {};
+
+        return {
+            ...DEFAULT_DENSITY[density],
+            ...override
+        };
+    }
+
+    function resolveTemplate(page) {
+        const raw =
+            page?.template ||
+            page?.layoutTemplate ||
+            (page?.continuation ? 'continuation-page' : 'vertical-flow');
+
+        const requested = normalizeToken(raw) || 'vertical-flow';
+
+        const applied = TEMPLATE_CONFIG[requested]
+            ? requested
+            : 'vertical-flow';
+
+        return {
+            requested,
+            applied,
+            deferred: requested !== applied,
+            config: TEMPLATE_CONFIG[applied]
+        };
+    }
+
+    function dataArray(block) {
+        if (Array.isArray(block.data)) {
+            return block.data;
+        }
+
+        if (isPlainObject(block.data)) {
+            if (Array.isArray(block.data.items)) {
+                return block.data.items;
+            }
+            if (Array.isArray(block.data.rows)) {
+                return block.data.rows;
+            }
+            if (Array.isArray(block.data.sections)) {
+                return block.data.sections;
+            }
+            if (Array.isArray(block.data.metrics)) {
+                return block.data.metrics;
+            }
+            if (Array.isArray(block.data.tasks)) {
+                return block.data.tasks;
+            }
+        }
+
         return [];
     }
 
-    function normalizeBlock(rawBlock, index) {
-        if (!isPlainObject(rawBlock)) {
-            throw new LayoutError(
-                'INVALID_BLOCK',
-                `Block at index ${index} must be an object.`,
-                { index, rawBlock }
-            );
+    function dataText(block) {
+        if (typeof block.data === 'string') {
+            return block.data;
         }
 
-        const id = canonicalBlockId(
-            rawBlock.id ||
-            rawBlock.type ||
-            rawBlock.blockId ||
-            rawBlock.key
-        );
-
-        if (!id) {
-            throw new LayoutError(
-                'MISSING_BLOCK_ID',
-                `Block at index ${index} has no id/type.`,
-                { index, rawBlock }
-            );
+        if (!isPlainObject(block.data)) {
+            return '';
         }
 
-        const data =
-            rawBlock.data ??
-            rawBlock.content ??
-            rawBlock.payload ??
-            rawBlock.value ??
-            null;
+        const candidates = [
+            block.data.text,
+            block.data.summary,
+            block.data.description,
+            block.data.details,
+            block.data.value
+        ];
 
-        return {
-            ...rawBlock,
-            id,
-            type: canonicalBlockId(rawBlock.type || id),
-            data,
-            layoutHint: isPlainObject(rawBlock.layoutHint)
-                ? rawBlock.layoutHint
-                : {},
-            sourceIndex: index
-        };
+        for (const candidate of candidates) {
+            if (typeof candidate === 'string' && candidate.trim()) {
+                return candidate;
+            }
+        }
+
+        return '';
     }
 
     function estimateTextLines(text, width, densityTokens) {
         const value = String(text || '').trim();
+
         if (!value) {
             return 0;
         }
 
-        // Deterministic approximation. Renderer remains responsible for
-        // measuring exact glyphs during the integration iteration.
-        const averageCharacterWidth = densityTokens.lineHeight * 0.43;
+        const averageCharacterWidth =
+            densityTokens.lineHeight * 0.43;
+
         const charactersPerLine = Math.max(
             12,
             Math.floor(width / averageCharacterWidth)
@@ -342,255 +511,303 @@
         return value
             .split(/\n+/)
             .reduce((total, paragraph) => {
-                const length = Math.max(1, paragraph.trim().length);
-                return total + Math.ceil(length / charactersPerLine);
+                const length = Math.max(
+                    1,
+                    paragraph.trim().length
+                );
+
+                return total +
+                    Math.ceil(length / charactersPerLine);
             }, 0);
     }
 
-    function arrayFromBlock(block) {
-        const candidates = [
-            block.items,
-            block.rows,
-            block.data,
-            block.data?.items,
-            block.data?.rows,
-            block.data?.sections
-        ];
-
-        for (const candidate of candidates) {
-            if (Array.isArray(candidate)) {
-                return candidate;
-            }
-        }
-        return [];
-    }
-
-    function textFromBlock(block) {
-        const candidates = [
-            block.text,
-            block.summary,
-            block.description,
-            block.details,
-            block.data,
-            block.data?.text,
-            block.data?.summary,
-            block.data?.description
-        ];
-
-        for (const candidate of candidates) {
-            if (typeof candidate === 'string' && candidate.trim()) {
-                return candidate;
-            }
-        }
-        return '';
-    }
-
-    function estimateListHeight(block, width, densityTokens) {
-        const items = arrayFromBlock(block);
+    function estimateSummaryHeight(block, width, tokens) {
         const bodyWidth = Math.max(
             80,
-            width - densityTokens.blockPadding * 2
+            width - tokens.blockPadding * 2
         );
 
-        const itemsHeight = items.reduce((total, item) => {
-            if (typeof item === 'string') {
-                const lines = Math.max(
-                    1,
-                    estimateTextLines(item, bodyWidth, densityTokens)
-                );
-                return total +
-                    lines * densityTokens.lineHeight +
-                    densityTokens.itemGap;
-            }
+        const lines = Math.max(
+            2,
+            estimateTextLines(
+                dataText(block),
+                bodyWidth,
+                tokens
+            )
+        );
 
-            const title =
-                item?.title ||
-                item?.name ||
-                item?.item ||
-                item?.task ||
-                '';
-            const details =
-                item?.details ||
-                item?.description ||
-                item?.text ||
-                item?.responsibility ||
-                '';
+        return tokens.blockPadding * 2 +
+            tokens.sectionTitleHeight +
+            lines * tokens.lineHeight;
+    }
+
+    function extractItemText(item) {
+        if (typeof item === 'string') {
+            return {
+                title: item,
+                details: ''
+            };
+        }
+
+        if (!isPlainObject(item)) {
+            return {
+                title: String(item ?? ''),
+                details: ''
+            };
+        }
+
+        return {
+            title:
+                item.title ||
+                item.name ||
+                item.item ||
+                item.task ||
+                item.owner ||
+                '',
+            details:
+                item.details ||
+                item.description ||
+                item.text ||
+                item.responsibility ||
+                item.deadline ||
+                item.dueDate ||
+                item.due_date ||
+                ''
+        };
+    }
+
+    function estimateListHeight(block, width, tokens) {
+        const items = dataArray(block);
+        const bodyWidth = Math.max(
+            80,
+            width - tokens.blockPadding * 2
+        );
+
+        const contentHeight = items.reduce((total, item) => {
+            const text = extractItemText(item);
 
             const titleLines = Math.max(
                 1,
-                estimateTextLines(title, bodyWidth, densityTokens)
+                estimateTextLines(
+                    text.title,
+                    bodyWidth,
+                    tokens
+                )
             );
+
             const detailLines = estimateTextLines(
-                details,
+                text.details,
                 bodyWidth,
-                densityTokens
+                tokens
             );
 
             return total +
-                (titleLines + detailLines) * densityTokens.lineHeight +
-                densityTokens.itemGap;
+                (titleLines + detailLines) * tokens.lineHeight +
+                tokens.itemGap;
         }, 0);
 
-        return densityTokens.blockPadding * 2 +
-            densityTokens.sectionTitleHeight +
-            itemsHeight;
+        const fallbackRows = items.length > 0
+            ? 0
+            : Math.max(1, finiteNumber(block.itemCount, 1));
+
+        return tokens.blockPadding * 2 +
+            tokens.sectionTitleHeight +
+            contentHeight +
+            fallbackRows * tokens.lineHeight;
     }
 
-    function estimateSummaryHeight(block, width, densityTokens) {
-        const text = textFromBlock(block);
-        const bodyWidth = Math.max(
-            80,
-            width - densityTokens.blockPadding * 2
-        );
-        const lines = Math.max(
-            2,
-            estimateTextLines(text, bodyWidth, densityTokens)
+    function estimateMetricsHeight(block, width, tokens, pageConfig) {
+        const metrics = dataArray(block);
+        const count = Math.max(
+            1,
+            metrics.length || finiteNumber(block.itemCount, 1)
         );
 
-        return densityTokens.blockPadding * 2 +
-            densityTokens.sectionTitleHeight +
-            lines * densityTokens.lineHeight;
-    }
-
-    function estimateMetricsHeight(block, width, densityTokens) {
-        const metrics = arrayFromBlock(block);
-        const count = Math.max(1, metrics.length);
         const minimumCardWidth = 150;
+
         const columns = Math.max(
             1,
             Math.floor(
-                (width + DEFAULT_PAGE.columnGap) /
-                (minimumCardWidth + DEFAULT_PAGE.columnGap)
+                (width + pageConfig.columnGap) /
+                (minimumCardWidth + pageConfig.columnGap)
             )
         );
+
         const rows = Math.ceil(count / columns);
 
-        return densityTokens.blockPadding * 2 +
-            densityTokens.sectionTitleHeight +
-            rows * densityTokens.metricHeight +
-            Math.max(0, rows - 1) * densityTokens.itemGap;
+        return tokens.blockPadding * 2 +
+            tokens.sectionTitleHeight +
+            rows * tokens.metricHeight +
+            Math.max(0, rows - 1) * tokens.itemGap;
     }
 
-    function estimateTasksHeight(block, width, densityTokens) {
-        const rows = arrayFromBlock(block);
-        const rowCount = Math.max(1, rows.length);
+    function estimateTasksHeight(block, tokens) {
+        const rows = dataArray(block);
 
-        return densityTokens.blockPadding * 2 +
-            densityTokens.sectionTitleHeight +
-            densityTokens.tableHeaderHeight +
-            rowCount * densityTokens.tableRowHeight;
+        const rowCount = Math.max(
+            1,
+            rows.length || finiteNumber(block.itemCount, 1)
+        );
+
+        return tokens.blockPadding * 2 +
+            tokens.sectionTitleHeight +
+            tokens.tableHeaderHeight +
+            rowCount * tokens.tableRowHeight;
     }
 
-    function estimateArchitectureHeight(block, width, densityTokens) {
-        const sections = arrayFromBlock(block);
-        let cards = 0;
+    function countArchitectureCards(block) {
+        const sections = dataArray(block);
 
-        for (const section of sections) {
-            if (Array.isArray(section?.items)) {
-                cards += section.items.length;
-            } else {
-                cards += 1;
-            }
+        if (sections.length === 0) {
+            return Math.max(
+                1,
+                finiteNumber(block.itemCount, 1)
+            );
         }
 
-        cards = Math.max(1, cards);
+        return sections.reduce((total, section) => {
+            if (Array.isArray(section?.items)) {
+                return total + Math.max(1, section.items.length);
+            }
+            return total + 1;
+        }, 0);
+    }
+
+    function estimateArchitectureHeight(
+        block,
+        width,
+        tokens,
+        pageConfig
+    ) {
+        const cards = countArchitectureCards(block);
         const minimumCardWidth = 210;
+
         const columns = Math.max(
             1,
             Math.min(
                 4,
                 Math.floor(
-                    (width + DEFAULT_PAGE.columnGap) /
-                    (minimumCardWidth + DEFAULT_PAGE.columnGap)
+                    (width + pageConfig.columnGap) /
+                    (minimumCardWidth + pageConfig.columnGap)
                 )
             )
         );
+
         const rows = Math.ceil(cards / columns);
 
-        return densityTokens.blockPadding * 2 +
-            densityTokens.sectionTitleHeight +
-            rows * densityTokens.architectureCardHeight +
-            Math.max(0, rows - 1) * densityTokens.itemGap;
+        return tokens.blockPadding * 2 +
+            tokens.sectionTitleHeight +
+            rows * tokens.architectureCardHeight +
+            Math.max(0, rows - 1) * tokens.itemGap;
+    }
+
+    function explicitBlockHeight(block) {
+        const candidates = [
+            block.estimatedHeight,
+            block.height,
+            block.data?.estimatedHeight,
+            block.data?.height
+        ];
+
+        for (const candidate of candidates) {
+            if (Number.isFinite(candidate) && candidate > 0) {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     function estimateBlockHeight(block, width, context) {
-        const { pageConfig, densityTokens } = context;
-        const explicitHeight =
-            block.layoutHint?.height ??
-            block.estimatedHeight ??
-            block.height;
+        const explicitHeight = explicitBlockHeight(block);
 
-        if (Number.isFinite(explicitHeight) && explicitHeight > 0) {
+        if (explicitHeight !== null) {
             return explicitHeight;
         }
+
+        const {
+            pageConfig,
+            densityTokens
+        } = context;
 
         switch (block.id) {
             case 'header':
                 return pageConfig.headerHeight;
+
             case 'stats':
                 return pageConfig.statsHeight;
+
             case 'footer':
                 return pageConfig.footerHeight;
+
             case 'summary':
                 return Math.max(
                     DEFAULT_BLOCK_MIN_HEIGHT.summary,
-                    estimateSummaryHeight(block, width, densityTokens)
+                    estimateSummaryHeight(
+                        block,
+                        width,
+                        densityTokens
+                    )
                 );
+
             case 'metrics':
                 return Math.max(
                     DEFAULT_BLOCK_MIN_HEIGHT.metrics,
-                    estimateMetricsHeight(block, width, densityTokens)
+                    estimateMetricsHeight(
+                        block,
+                        width,
+                        densityTokens,
+                        pageConfig
+                    )
                 );
+
             case 'tasks':
                 return Math.max(
                     DEFAULT_BLOCK_MIN_HEIGHT.tasks,
-                    estimateTasksHeight(block, width, densityTokens)
+                    estimateTasksHeight(
+                        block,
+                        densityTokens
+                    )
                 );
+
             case 'architecture':
                 return Math.max(
                     DEFAULT_BLOCK_MIN_HEIGHT.architecture,
                     estimateArchitectureHeight(
                         block,
                         width,
-                        densityTokens
+                        densityTokens,
+                        pageConfig
                     )
                 );
+
             case 'insights':
             case 'decisions':
             case 'risks':
             case 'owners':
                 return Math.max(
-                    DEFAULT_BLOCK_MIN_HEIGHT[block.id] || 80,
-                    estimateListHeight(block, width, densityTokens)
+                    DEFAULT_BLOCK_MIN_HEIGHT[block.id],
+                    estimateListHeight(
+                        block,
+                        width,
+                        densityTokens
+                    )
                 );
-            default: {
-                const text = textFromBlock(block);
-                if (text) {
-                    return Math.max(
-                        68,
-                        estimateSummaryHeight(
-                            block,
-                            width,
-                            densityTokens
-                        )
-                    );
-                }
-                const items = arrayFromBlock(block);
-                if (items.length) {
-                    return Math.max(
-                        68,
-                        estimateListHeight(block, width, densityTokens)
-                    );
-                }
-                return 68;
-            }
+
+            default:
+                throw new LayoutError(
+                    'UNSUPPORTED_BLOCK',
+                    `No height estimator for block "${block.id}".`
+                );
         }
     }
 
     function createPageRegions(pageConfig, hasStats) {
         const contentLeft = pageConfig.margin.left;
-        const contentRight = pageConfig.width - pageConfig.margin.right;
-        const contentWidth = contentRight - contentLeft;
+        const contentRight =
+            pageConfig.width - pageConfig.margin.right;
+        const contentWidth =
+            contentRight - contentLeft;
 
         const header = {
             id: 'header',
@@ -613,7 +830,8 @@
         const footer = {
             id: 'footer',
             x: contentLeft,
-            y: pageConfig.height -
+            y:
+                pageConfig.height -
                 pageConfig.margin.bottom -
                 pageConfig.footerHeight,
             width: contentWidth,
@@ -624,7 +842,23 @@
             ? stats.y + stats.height + pageConfig.sectionGap
             : header.y + header.height + pageConfig.sectionGap;
 
-        const bodyBottom = footer.y - pageConfig.sectionGap;
+        const bodyBottom =
+            footer.y - pageConfig.sectionGap;
+
+        const bodyHeight =
+            bodyBottom - bodyTop;
+
+        if (bodyHeight <= 0) {
+            throw new LayoutError(
+                'INVALID_PAGE_GEOMETRY',
+                'Page service regions leave no positive body height.',
+                {
+                    pageConfig,
+                    bodyTop,
+                    bodyBottom
+                }
+            );
+        }
 
         return {
             header,
@@ -634,188 +868,180 @@
                 x: contentLeft,
                 y: bodyTop,
                 width: contentWidth,
-                height: Math.max(0, bodyBottom - bodyTop)
+                height: bodyHeight
             },
             footer
         };
     }
 
-    function resolveTemplate(page, normalizedBlocks) {
-        const raw =
-            page?.template ||
-            page?.layoutTemplate ||
-            page?.composition ||
-            'vertical-flow';
-
-        const requested = normalizeId(raw) || 'vertical-flow';
-        const aliases = {
-            'dominant-insight': 'dominant-insights',
-            'dominant-decision': 'dominant-decisions',
-            'dominant-risk': 'dominant-risks'
-        };
-        const normalized = aliases[requested] || requested;
-        const applied = TEMPLATE_CONFIG[normalized]
-            ? normalized
-            : 'vertical-flow';
-
+    function makeLayout(
+        pageNumber,
+        region,
+        column,
+        order,
+        role,
+        fits,
+        geometry
+    ) {
         return {
-            requested,
-            applied,
-            deferred: requested !== applied,
-            config: TEMPLATE_CONFIG[applied]
+            pageNumber,
+            region,
+            column: column || null,
+            order,
+            role,
+            fits,
+            geometry: clone(geometry)
         };
     }
 
-    function geometryForServiceBlock(block, regions) {
-        if (block.id === 'header') {
-            return regions.header;
-        }
-        if (block.id === 'stats') {
-            return regions.stats;
-        }
-        if (block.id === 'footer') {
-            return regions.footer;
-        }
-        return null;
-    }
-
-    function layoutVerticalFlow(blocks, regions, context) {
-        const bodyBlocks = blocks.filter(block => !SERVICE_IDS.has(block.id));
-        const positioned = [];
-        const overflow = [];
-        let cursorY = regions.body.y;
-
-        bodyBlocks.forEach((block, index) => {
-            const width = regions.body.width;
-            const height = estimateBlockHeight(block, width, context);
-            const remainingHeight =
-                regions.body.y + regions.body.height - cursorY;
-
-            const geometry = {
-                x: regions.body.x,
-                y: cursorY,
-                width,
-                height
-            };
-
-            const fits = height <= remainingHeight + 0.001;
-
-            const positionedBlock = {
-                ...block,
-                geometry,
+    function enrichBlock(
+        block,
+        pageNumber,
+        region,
+        column,
+        order,
+        role,
+        fits,
+        geometry
+    ) {
+        return {
+            ...block,
+            layout: makeLayout(
+                pageNumber,
+                region,
+                column,
+                order,
+                role,
                 fits,
-                region: 'body',
-                order: index,
-                role: EXECUTIVE_IDS.has(block.id)
-                    ? 'executive'
-                    : 'supporting'
-            };
-
-            if (fits) {
-                positioned.push(positionedBlock);
-                cursorY += height + context.pageConfig.rowGap;
-            } else {
-                overflow.push({
-                    ...positionedBlock,
-                    overflowBy: Math.max(0, height - remainingHeight)
-                });
-            }
-        });
-
-        return {
-            positioned,
-            overflow,
-            usedHeight: positioned.length
-                ? Math.max(
-                    0,
-                    cursorY -
-                    context.pageConfig.rowGap -
-                    regions.body.y
-                )
-                : 0,
-            availableHeight: regions.body.height
+                geometry
+            )
         };
     }
 
-
-    function splitByHeight(blocks, width, availableHeight, context) {
-        const left = [];
-        const right = [];
-        let leftHeight = 0;
-        let rightHeight = 0;
+    function appendServiceBlocks(blocks, regions, pageNumber) {
+        const result = [];
 
         for (const block of blocks) {
-            const estimated = estimateBlockHeight(block, width, context);
-            const target = leftHeight <= rightHeight ? left : right;
-
-            target.push(block);
-            if (target === left) {
-                leftHeight += estimated + context.pageConfig.rowGap;
-            } else {
-                rightHeight += estimated + context.pageConfig.rowGap;
+            if (!SERVICE_IDS.has(block.id)) {
+                continue;
             }
+
+            const geometry =
+                block.id === 'header'
+                    ? regions.header
+                    : block.id === 'stats'
+                        ? regions.stats
+                        : regions.footer;
+
+            if (!geometry) {
+                continue;
+            }
+
+            result.push(
+                enrichBlock(
+                    block,
+                    pageNumber,
+                    block.id,
+                    null,
+                    block.sourceIndex,
+                    'service',
+                    true,
+                    geometry
+                )
+            );
         }
 
-        return { left, right, leftHeight, rightHeight };
+        return result;
     }
 
-    function layoutColumn(blocks, region, context, columnId) {
+    function layoutVerticalFlow(blocks, region, context) {
         const positioned = [];
         const overflow = [];
         let cursorY = region.y;
 
         blocks.forEach((block, index) => {
-            const height = estimateBlockHeight(block, region.width, context);
+            const width = region.width;
+            const height = estimateBlockHeight(
+                block,
+                width,
+                context
+            );
+
             const remainingHeight =
                 region.y + region.height - cursorY;
-            const fits = height <= remainingHeight + 0.001;
 
-            const positionedBlock = {
-                ...block,
-                geometry: {
-                    x: region.x,
-                    y: cursorY,
-                    width: region.width,
-                    height
-                },
-                fits,
-                region: 'body',
-                column: columnId,
-                order: index,
-                role: EXECUTIVE_IDS.has(block.id)
-                    ? 'executive'
-                    : 'supporting'
+            const geometry = {
+                x: region.x,
+                y: cursorY,
+                width,
+                height
             };
 
+            const fits =
+                height <= remainingHeight + 0.001;
+
+            const role = EXECUTIVE_IDS.has(block.id)
+                ? 'executive'
+                : 'supporting';
+
+            const enriched = enrichBlock(
+                block,
+                context.pageNumber,
+                'body',
+                null,
+                index,
+                role,
+                fits,
+                geometry
+            );
+
             if (fits) {
-                positioned.push(positionedBlock);
-                cursorY += height + context.pageConfig.rowGap;
+                positioned.push(enriched);
+                cursorY +=
+                    height + context.pageConfig.rowGap;
             } else {
                 overflow.push({
-                    ...positionedBlock,
-                    overflowBy: Math.max(0, height - remainingHeight)
+                    ...enriched,
+                    overflowBy: Math.max(
+                        0,
+                        height - remainingHeight
+                    )
                 });
             }
         });
 
+        const usedHeight = positioned.length
+            ? Math.max(
+                0,
+                cursorY -
+                context.pageConfig.rowGap -
+                region.y
+            )
+            : 0;
+
         return {
             positioned,
             overflow,
-            usedHeight: positioned.length
-                ? cursorY - context.pageConfig.rowGap - region.y
-                : 0
+            usedHeight,
+            availableHeight: region.height,
+            columns: null
         };
     }
 
     function createColumnRegions(bodyRegion, pageConfig, templateConfig) {
         const gap = pageConfig.columnGap;
         const totalWidth = bodyRegion.width - gap;
-        const dominantRatio = templateConfig.dominantRatio || 1;
+        const dominantRatio =
+            templateConfig.dominantRatio || 1;
 
         const leftWidth = templateConfig.dominantBlock
-            ? totalWidth * dominantRatio / (1 + dominantRatio)
+            ? totalWidth *
+                dominantRatio /
+                (1 + dominantRatio)
             : totalWidth / 2;
-        const rightWidth = totalWidth - leftWidth;
+
+        const rightWidth =
+            totalWidth - leftWidth;
 
         return {
             left: {
@@ -827,7 +1053,10 @@
             },
             right: {
                 id: 'body-right',
-                x: bodyRegion.x + leftWidth + gap,
+                x:
+                    bodyRegion.x +
+                    leftWidth +
+                    gap,
                 y: bodyRegion.y,
                 width: rightWidth,
                 height: bodyRegion.height
@@ -835,193 +1064,169 @@
         };
     }
 
-    function prioritizeDominantBlock(blocks, dominantBlock) {
-        if (!dominantBlock) {
-            return blocks;
+    function measureColumnHeight(blocks, width, context) {
+        if (blocks.length === 0) {
+            return 0;
         }
 
-        const dominant = [];
-        const rest = [];
-        for (const block of blocks) {
-            if (block.id === dominantBlock) {
-                dominant.push(block);
-            } else {
-                rest.push(block);
-            }
-        }
-        return [...dominant, ...rest];
-    }
-
-    function findSideBySidePair(blocks) {
-        const tasksIndex = blocks.findIndex(block => block.id === 'tasks');
-        const architectureIndex = blocks.findIndex(
-            block => block.id === 'architecture'
-        );
-
-        if (tasksIndex === -1 || architectureIndex === -1) {
-            return null;
-        }
-
-        return {
-            tasks: blocks[tasksIndex],
-            architecture: blocks[architectureIndex],
-            firstIndex: Math.min(tasksIndex, architectureIndex)
-        };
-    }
-
-    function shouldUseSideBySide(pair, bodyRegion, context) {
-        if (!pair) {
-            return false;
-        }
-
-        const halfWidth =
-            (bodyRegion.width - context.pageConfig.columnGap) / 2;
-        const tasksHeight = estimateBlockHeight(
-            pair.tasks,
-            halfWidth,
-            context
-        );
-        const architectureHeight = estimateBlockHeight(
-            pair.architecture,
-            halfWidth,
-            context
-        );
-
-        return Math.max(tasksHeight, architectureHeight) <=
-            bodyRegion.height * 0.58;
-    }
-
-    function layoutSideBySidePair(pair, bodyRegion, context) {
-        const gap = context.pageConfig.columnGap;
-        const width = (bodyRegion.width - gap) / 2;
-        const tasksHeight = estimateBlockHeight(pair.tasks, width, context);
-        const architectureHeight = estimateBlockHeight(
-            pair.architecture,
-            width,
-            context
-        );
-        const height = Math.max(tasksHeight, architectureHeight);
-
-        return {
-            blocks: [
-                {
-                    ...pair.tasks,
-                    geometry: {
-                        x: bodyRegion.x,
-                        y: bodyRegion.y,
-                        width,
-                        height
-                    },
-                    fits: height <= bodyRegion.height,
-                    region: 'body',
-                    column: 'left',
-                    order: 0,
-                    role: 'supporting'
-                },
-                {
-                    ...pair.architecture,
-                    geometry: {
-                        x: bodyRegion.x + width + gap,
-                        y: bodyRegion.y,
-                        width,
-                        height
-                    },
-                    fits: height <= bodyRegion.height,
-                    region: 'body',
-                    column: 'right',
-                    order: 1,
-                    role: 'supporting'
-                }
-            ],
-            usedHeight: height,
-            overflow: height <= bodyRegion.height ? [] : [
-                {
-                    id: 'tasks-architecture-pair',
-                    overflowBy: height - bodyRegion.height
-                }
-            ]
-        };
-    }
-
-    function layoutAdaptive(blocks, regions, context, template) {
-        const bodyBlocks = blocks.filter(block => !SERVICE_IDS.has(block.id));
-        const pair = findSideBySidePair(bodyBlocks);
-
-        if (shouldUseSideBySide(pair, regions.body, context)) {
-            const pairIds = new Set(['tasks', 'architecture']);
-            const upperBlocks = bodyBlocks.filter(
-                block => !pairIds.has(block.id)
-            );
-            const upperAvailable = Math.max(
-                0,
-                regions.body.height -
-                context.pageConfig.rowGap -
-                regions.body.height * 0.42
-            );
-            const upperRegion = {
-                ...regions.body,
-                height: upperAvailable
-            };
-
-            const upper = template.config.columns === 2
-                ? layoutTwoColumns(
-                    upperBlocks,
-                    upperRegion,
-                    context,
-                    template
-                )
-                : layoutVerticalFlow(
-                    [...upperBlocks],
-                    upperRegion,
+        return blocks.reduce((total, block) => {
+            return total +
+                estimateBlockHeight(
+                    block,
+                    width,
                     context
-                );
-
-            const pairTop = regions.body.y +
-                upper.usedHeight +
+                ) +
                 context.pageConfig.rowGap;
-            const pairRegion = {
-                ...regions.body,
-                y: pairTop,
-                height: Math.max(
-                    0,
-                    regions.body.y +
-                    regions.body.height -
-                    pairTop
-                )
-            };
-            const sideBySide = layoutSideBySidePair(
-                pair,
-                pairRegion,
+        }, 0) - context.pageConfig.rowGap;
+    }
+
+    function splitBalanced(blocks, leftWidth, rightWidth, context) {
+        const left = [];
+        const right = [];
+        let leftHeight = 0;
+        let rightHeight = 0;
+
+        for (const block of blocks) {
+            const leftEstimate = estimateBlockHeight(
+                block,
+                leftWidth,
                 context
             );
 
-            return {
-                positioned: [
-                    ...upper.positioned,
-                    ...sideBySide.blocks
-                ],
-                overflow: [
-                    ...upper.overflow,
-                    ...sideBySide.overflow
-                ],
-                usedHeight:
-                    upper.usedHeight +
-                    context.pageConfig.rowGap +
-                    sideBySide.usedHeight,
-                availableHeight: regions.body.height
-            };
+            const rightEstimate = estimateBlockHeight(
+                block,
+                rightWidth,
+                context
+            );
+
+            if (leftHeight <= rightHeight) {
+                left.push(block);
+                leftHeight +=
+                    leftEstimate +
+                    context.pageConfig.rowGap;
+            } else {
+                right.push(block);
+                rightHeight +=
+                    rightEstimate +
+                    context.pageConfig.rowGap;
+            }
         }
 
-        if (template.config.columns === 2) {
-            return layoutTwoColumns(
-                bodyBlocks,
-                regions.body,
-                context,
-                template
+        return {
+            left,
+            right,
+            leftHeight,
+            rightHeight
+        };
+    }
+
+    function splitDominant(blocks, columns, context, dominantBlockId) {
+        const dominant = blocks.filter(
+            block => block.id === dominantBlockId
+        );
+
+        const rest = blocks.filter(
+            block => block.id !== dominantBlockId
+        );
+
+        if (dominant.length === 0) {
+            return splitBalanced(
+                blocks,
+                columns.left.width,
+                columns.right.width,
+                context
             );
         }
 
-        return layoutVerticalFlow(blocks, regions, context);
+        const dominantHeight = measureColumnHeight(
+            dominant,
+            columns.left.width,
+            context
+        );
+
+        const rightHeight = measureColumnHeight(
+            rest,
+            columns.right.width,
+            context
+        );
+
+        return {
+            left: dominant,
+            right: rest,
+            leftHeight: dominantHeight,
+            rightHeight
+        };
+    }
+
+    function layoutColumn(blocks, region, context, columnId) {
+        const positioned = [];
+        const overflow = [];
+        let cursorY = region.y;
+
+        blocks.forEach((block, index) => {
+            const height = estimateBlockHeight(
+                block,
+                region.width,
+                context
+            );
+
+            const remainingHeight =
+                region.y + region.height - cursorY;
+
+            const fits =
+                height <= remainingHeight + 0.001;
+
+            const geometry = {
+                x: region.x,
+                y: cursorY,
+                width: region.width,
+                height
+            };
+
+            const role = EXECUTIVE_IDS.has(block.id)
+                ? 'executive'
+                : 'supporting';
+
+            const enriched = enrichBlock(
+                block,
+                context.pageNumber,
+                'body',
+                columnId,
+                index,
+                role,
+                fits,
+                geometry
+            );
+
+            if (fits) {
+                positioned.push(enriched);
+                cursorY +=
+                    height + context.pageConfig.rowGap;
+            } else {
+                overflow.push({
+                    ...enriched,
+                    overflowBy: Math.max(
+                        0,
+                        height - remainingHeight
+                    )
+                });
+            }
+        });
+
+        const usedHeight = positioned.length
+            ? Math.max(
+                0,
+                cursorY -
+                context.pageConfig.rowGap -
+                region.y
+            )
+            : 0;
+
+        return {
+            positioned,
+            overflow,
+            usedHeight
+        };
     }
 
     function layoutTwoColumns(blocks, bodyRegion, context, template) {
@@ -1030,48 +1235,30 @@
             context.pageConfig,
             template.config
         );
-        const ordered = prioritizeDominantBlock(
-            blocks,
-            template.config.dominantBlock
-        );
 
-        let leftBlocks = [];
-        let rightBlocks = [];
-
-        if (template.config.dominantBlock) {
-            leftBlocks = ordered.filter(
-                block => block.id === template.config.dominantBlock
-            );
-            const rest = ordered.filter(
-                block => block.id !== template.config.dominantBlock
-            );
-            const split = splitByHeight(
-                rest,
-                columns.right.width,
-                bodyRegion.height,
-                context
-            );
-
-            rightBlocks = [...split.left, ...split.right];
-        } else {
-            const split = splitByHeight(
-                ordered,
+        const split = template.config.dominantBlock
+            ? splitDominant(
+                blocks,
+                columns,
+                context,
+                template.config.dominantBlock
+            )
+            : splitBalanced(
+                blocks,
                 columns.left.width,
-                bodyRegion.height,
+                columns.right.width,
                 context
             );
-            leftBlocks = split.left;
-            rightBlocks = split.right;
-        }
 
         const left = layoutColumn(
-            leftBlocks,
+            split.left,
             columns.left,
             context,
             'left'
         );
+
         const right = layoutColumn(
-            rightBlocks,
+            split.right,
             columns.right,
             context,
             'right'
@@ -1086,16 +1273,273 @@
                 ...left.overflow,
                 ...right.overflow
             ],
-            usedHeight: Math.max(left.usedHeight, right.usedHeight),
+            usedHeight: Math.max(
+                left.usedHeight,
+                right.usedHeight
+            ),
             availableHeight: bodyRegion.height,
             columns
         };
     }
 
+    function findSideBySidePair(blocks) {
+        const tasks = blocks.find(
+            block => block.id === 'tasks'
+        );
+
+        const architecture = blocks.find(
+            block => block.id === 'architecture'
+        );
+
+        if (!tasks || !architecture) {
+            return null;
+        }
+
+        return {
+            tasks,
+            architecture
+        };
+    }
+
+    function measureSideBySidePair(pair, bodyRegion, context) {
+        const gap = context.pageConfig.columnGap;
+        const width =
+            (bodyRegion.width - gap) / 2;
+
+        const tasksHeight = estimateBlockHeight(
+            pair.tasks,
+            width,
+            context
+        );
+
+        const architectureHeight = estimateBlockHeight(
+            pair.architecture,
+            width,
+            context
+        );
+
+        return {
+            width,
+            height: Math.max(
+                tasksHeight,
+                architectureHeight
+            ),
+            tasksHeight,
+            architectureHeight
+        };
+    }
+
+    function shouldUseSideBySide(pair, bodyRegion, context) {
+        if (!pair) {
+            return false;
+        }
+
+        const measurement = measureSideBySidePair(
+            pair,
+            bodyRegion,
+            context
+        );
+
+        return measurement.height <=
+            bodyRegion.height * 0.58;
+    }
+
+    function layoutSideBySidePair(
+        pair,
+        region,
+        context,
+        orderOffset
+    ) {
+        const gap = context.pageConfig.columnGap;
+        const width =
+            (region.width - gap) / 2;
+
+        const tasksHeight = estimateBlockHeight(
+            pair.tasks,
+            width,
+            context
+        );
+
+        const architectureHeight = estimateBlockHeight(
+            pair.architecture,
+            width,
+            context
+        );
+
+        const sharedHeight = Math.max(
+            tasksHeight,
+            architectureHeight
+        );
+
+        const fits =
+            sharedHeight <= region.height + 0.001;
+
+        const tasksGeometry = {
+            x: region.x,
+            y: region.y,
+            width,
+            height: sharedHeight
+        };
+
+        const architectureGeometry = {
+            x: region.x + width + gap,
+            y: region.y,
+            width,
+            height: sharedHeight
+        };
+
+        const blocks = [
+            enrichBlock(
+                pair.tasks,
+                context.pageNumber,
+                'body',
+                'left',
+                orderOffset,
+                'supporting',
+                fits,
+                tasksGeometry
+            ),
+            enrichBlock(
+                pair.architecture,
+                context.pageNumber,
+                'body',
+                'right',
+                orderOffset + 1,
+                'supporting',
+                fits,
+                architectureGeometry
+            )
+        ];
+
+        return {
+            positioned: fits ? blocks : [],
+            overflow: fits
+                ? []
+                : blocks.map(block => ({
+                    ...block,
+                    overflowBy:
+                        sharedHeight - region.height
+                })),
+            usedHeight: fits ? sharedHeight : 0,
+            availableHeight: region.height
+        };
+    }
+
+    function layoutAdaptive(blocks, regions, context, template) {
+        const pair = findSideBySidePair(blocks);
+
+        if (shouldUseSideBySide(pair, regions.body, context)) {
+            const pairIds = new Set([
+                'tasks',
+                'architecture'
+            ]);
+
+            const upperBlocks = blocks.filter(
+                block => !pairIds.has(block.id)
+            );
+
+            const pairMeasurement = measureSideBySidePair(
+                pair,
+                regions.body,
+                context
+            );
+
+            const upperHeight = Math.max(
+                0,
+                regions.body.height -
+                context.pageConfig.rowGap -
+                pairMeasurement.height
+            );
+
+            const upperRegion = {
+                ...regions.body,
+                height: upperHeight
+            };
+
+            const upper = template.config.columns === 2
+                ? layoutTwoColumns(
+                    upperBlocks,
+                    upperRegion,
+                    context,
+                    template
+                )
+                : layoutVerticalFlow(
+                    upperBlocks,
+                    upperRegion,
+                    context
+                );
+
+            if (upper.overflow.length === 0) {
+                const pairTop =
+                    regions.body.y +
+                    upper.usedHeight +
+                    context.pageConfig.rowGap;
+
+                const pairRegion = {
+                    ...regions.body,
+                    y: pairTop,
+                    height: Math.max(
+                        0,
+                        regions.body.y +
+                        regions.body.height -
+                        pairTop
+                    )
+                };
+
+                const sideBySide = layoutSideBySidePair(
+                    pair,
+                    pairRegion,
+                    context,
+                    upper.positioned.length
+                );
+
+                return {
+                    positioned: [
+                        ...upper.positioned,
+                        ...sideBySide.positioned
+                    ],
+                    overflow: [
+                        ...upper.overflow,
+                        ...sideBySide.overflow
+                    ],
+                    usedHeight:
+                        upper.usedHeight +
+                        context.pageConfig.rowGap +
+                        sideBySide.usedHeight,
+                    availableHeight: regions.body.height,
+                    columns: upper.columns || null
+                };
+            }
+        }
+
+        if (template.config.columns === 2) {
+            return layoutTwoColumns(
+                blocks,
+                regions.body,
+                context,
+                template
+            );
+        }
+
+        return layoutVerticalFlow(
+            blocks,
+            regions.body,
+            context
+        );
+    }
+
     function nextDensity(current) {
-        const order = ['regular', 'compact', 'dense', 'truncated'];
+        const order = [
+            'regular',
+            'compact',
+            'dense',
+            'truncated'
+        ];
+
         const index = order.indexOf(current);
-        return index >= 0 && index < order.length - 1
+
+        return index >= 0 &&
+            index < order.length - 1
             ? order[index + 1]
             : null;
     }
@@ -1108,14 +1552,22 @@
         options
     ) {
         let context = baseContext;
-        let flow = layoutAdaptive(blocks, regions, context, template);
+
+        let flow = layoutAdaptive(
+            blocks,
+            regions,
+            context,
+            template
+        );
+
         const attempted = [context.density];
 
         while (
-            flow.overflow.length &&
+            flow.overflow.length > 0 &&
             options?.enableDensityFallback !== false
         ) {
             const next = nextDensity(context.density);
+
             if (!next) {
                 break;
             }
@@ -1123,15 +1575,20 @@
             context = {
                 ...context,
                 density: next,
-                densityTokens: {
-                    ...DEFAULT_DENSITY[next],
-                    ...(isPlainObject(options?.densityTokens?.[next])
-                        ? options.densityTokens[next]
-                        : {})
-                }
+                densityTokens: resolveDensityTokens(
+                    next,
+                    options
+                )
             };
+
             attempted.push(next);
-            flow = layoutAdaptive(blocks, regions, context, template);
+
+            flow = layoutAdaptive(
+                blocks,
+                regions,
+                context,
+                template
+            );
         }
 
         return {
@@ -1145,43 +1602,36 @@
         };
     }
 
-    function appendServiceBlocks(blocks, regions, pageNumber) {
-        const result = [];
-
-        for (const block of blocks) {
-            if (!SERVICE_IDS.has(block.id)) {
-                continue;
-            }
-
-            const geometry = geometryForServiceBlock(block, regions);
-            if (!geometry) {
-                continue;
-            }
-
-            result.push({
-                ...block,
-                geometry: clone(geometry),
-                fits: true,
-                region: block.id,
-                order: block.sourceIndex,
-                role: 'service',
-                pageNumber
-            });
-        }
-
-        return result;
+    function rectanglesIntersect(a, b) {
+        return (
+            a.x < b.x + b.width &&
+            a.x + a.width > b.x &&
+            a.y < b.y + b.height &&
+            a.y + a.height > b.y
+        );
     }
 
     function validateGeometry(pageResult) {
         const errors = [];
         const warnings = [];
-        const { width, height } = pageResult.size;
-        const blocks = pageResult.blocks;
+        const {
+            width,
+            height
+        } = pageResult.size;
 
-        for (const block of blocks) {
-            const g = block.geometry;
-            if (!g ||
-                ![g.x, g.y, g.width, g.height].every(Number.isFinite)) {
+        for (const block of pageResult.blocks) {
+            const geometry =
+                block.layout?.geometry;
+
+            if (
+                !geometry ||
+                ![
+                    geometry.x,
+                    geometry.y,
+                    geometry.width,
+                    geometry.height
+                ].every(Number.isFinite)
+            ) {
                 errors.push({
                     code: 'INVALID_GEOMETRY',
                     blockId: block.id
@@ -1189,50 +1639,71 @@
                 continue;
             }
 
-            if (g.width <= 0 || g.height <= 0) {
+            if (
+                geometry.width <= 0 ||
+                geometry.height <= 0
+            ) {
                 errors.push({
                     code: 'NON_POSITIVE_GEOMETRY',
                     blockId: block.id,
-                    geometry: g
+                    geometry
                 });
             }
 
-            if (g.x < 0 ||
-                g.y < 0 ||
-                g.x + g.width > width + 0.001 ||
-                g.y + g.height > height + 0.001) {
+            if (
+                geometry.x < 0 ||
+                geometry.y < 0 ||
+                geometry.x + geometry.width > width + 0.001 ||
+                geometry.y + geometry.height > height + 0.001
+            ) {
                 errors.push({
                     code: 'OUT_OF_PAGE',
                     blockId: block.id,
-                    geometry: g
+                    geometry
                 });
             }
         }
 
-        const bodyBlocks = blocks.filter(block => block.region === 'body');
-        for (let i = 0; i < bodyBlocks.length; i += 1) {
-            for (let j = i + 1; j < bodyBlocks.length; j += 1) {
-                const a = bodyBlocks[i];
-                const b = bodyBlocks[j];
-                const intersects =
-                    a.geometry.x < b.geometry.x + b.geometry.width &&
-                    a.geometry.x + a.geometry.width > b.geometry.x &&
-                    a.geometry.y < b.geometry.y + b.geometry.height &&
-                    a.geometry.y + a.geometry.height > b.geometry.y;
+        const bodyBlocks = pageResult.blocks.filter(
+            block => block.layout?.region === 'body'
+        );
 
-                if (intersects) {
+        for (
+            let first = 0;
+            first < bodyBlocks.length;
+            first += 1
+        ) {
+            for (
+                let second = first + 1;
+                second < bodyBlocks.length;
+                second += 1
+            ) {
+                const a = bodyBlocks[first];
+                const b = bodyBlocks[second];
+
+                if (
+                    rectanglesIntersect(
+                        a.layout.geometry,
+                        b.layout.geometry
+                    )
+                ) {
                     errors.push({
                         code: 'BLOCK_INTERSECTION',
-                        blockIds: [a.id, b.id]
+                        blockIds: [
+                            a.id,
+                            b.id
+                        ]
                     });
                 }
             }
         }
 
-        if (pageResult.overflow.length) {
+        if (pageResult.overflow.length > 0) {
             warnings.push({
                 code: 'PAGE_OVERFLOW',
-                blockIds: pageResult.overflow.map(block => block.id)
+                blockIds: pageResult.overflow.map(
+                    block => block.id
+                )
             });
         }
 
@@ -1243,69 +1714,117 @@
         };
     }
 
-    function layoutPage(rawPage, pageIndex, pageCount, composition, options) {
+    function assertUniqueBlockIds(blocks, pageIndex) {
+        const seen = new Set();
+
+        for (const block of blocks) {
+            if (seen.has(block.id)) {
+                throw new LayoutError(
+                    'DUPLICATE_BLOCK_ID',
+                    `Page ${pageIndex + 1} contains duplicate block "${block.id}".`,
+                    {
+                        pageIndex,
+                        blockId: block.id
+                    }
+                );
+            }
+
+            seen.add(block.id);
+        }
+    }
+
+    function layoutPage(
+        rawPage,
+        pageIndex,
+        pageCount,
+        composition,
+        options
+    ) {
+        const page = assertCompositionPage(
+            rawPage,
+            pageIndex
+        );
+
+        const blocks = page.blocks.map(
+            (block, blockIndex) =>
+                assertCompositionBlock(
+                    block,
+                    blockIndex,
+                    pageIndex
+                )
+        );
+
+        assertUniqueBlockIds(blocks, pageIndex);
+
         const pageConfig = normalizePageConfig(options);
-        const rawBlocks = extractPageBlocks(rawPage);
-        const blocks = rawBlocks.map(normalizeBlock);
 
-        const hasStats = blocks.some(block => block.id === 'stats');
-        const regions = createPageRegions(pageConfig, hasStats);
-        const density = resolveDensity(rawPage, composition, options);
-        const densityTokens = {
-            ...DEFAULT_DENSITY[density],
-            ...(isPlainObject(options?.densityTokens?.[density])
-                ? options.densityTokens[density]
-                : {})
-        };
+        const hasStats = blocks.some(
+            block => block.id === 'stats'
+        );
 
-        const template = resolveTemplate(rawPage, blocks);
+        const regions = createPageRegions(
+            pageConfig,
+            hasStats
+        );
+
+        const requestedDensity = resolveDensity(
+            page,
+            composition,
+            options
+        );
+
+        const densityTokens = resolveDensityTokens(
+            requestedDensity,
+            options
+        );
+
+        const template = resolveTemplate(page);
+
         const context = {
             pageConfig,
-            density,
+            density: requestedDensity,
             densityTokens,
-            pageNumber: pageIndex + 1,
+            pageNumber: page.number || pageIndex + 1,
             pageCount
         };
 
+        const bodyBlocks = blocks.filter(
+            block => !SERVICE_IDS.has(block.id)
+        );
+
         const flow = layoutWithDensityFallback(
-            blocks,
-            regions: flow.columns
-                ? {
-                    ...regions,
-                    columns: flow.columns
-                }
-                : regions,
+            bodyBlocks,
+            regions,
             context,
             template,
             options
         );
+
         const serviceBlocks = appendServiceBlocks(
             blocks,
-            regions: flow.columns
-                ? {
-                    ...regions,
-                    columns: flow.columns
-                }
-                : regions,
-            pageIndex + 1
+            regions,
+            context.pageNumber
         );
 
-        const bodyBlocks = flow.positioned.map(block => ({
-            ...block,
-            pageNumber: pageIndex + 1
-        }));
+        const laidOutBlocks = [
+            ...serviceBlocks,
+            ...flow.positioned
+        ].sort(
+            (a, b) =>
+                a.sourceIndex - b.sourceIndex
+        );
 
         const result = {
-            id: rawPage?.id || `page-${pageIndex + 1}`,
-            number: rawPage?.number || pageIndex + 1,
+            id: page.id || `page-${pageIndex + 1}`,
+            number: context.pageNumber,
             index: pageIndex,
             pageCount,
             continuation: Boolean(
-                rawPage?.continuation ||
+                page.continuation ||
                 pageIndex > 0
             ),
+            requestedDensity,
             density: flow.density,
-            requestedDensity: density,
             template,
             size: {
                 width: pageConfig.width,
@@ -1317,51 +1836,68 @@
                     columns: flow.columns
                 }
                 : regions,
-            blocks: [...serviceBlocks, ...bodyBlocks].sort(
-                (a, b) => a.sourceIndex - b.sourceIndex
-            ),
+            blocks: laidOutBlocks,
             overflow: flow.overflow,
             metrics: {
                 bodyUsedHeight: flow.usedHeight,
                 bodyAvailableHeight: flow.availableHeight,
-                bodyUtilization: flow.availableHeight > 0
-                    ? flow.usedHeight / flow.availableHeight
-                    : 0,
-                placedBlocks: bodyBlocks.length,
+                bodyUtilization:
+                    flow.availableHeight > 0
+                        ? flow.usedHeight /
+                            flow.availableHeight
+                        : 0,
+                placedBlocks: flow.positioned.length,
+                serviceBlocks: serviceBlocks.length,
                 overflowBlocks: flow.overflow.length,
-                densityFallback: flow.densityFallback
+                densityFallback:
+                    flow.densityFallback
             }
         };
 
-        result.validation = validateGeometry(result);
+        result.validation =
+            validateGeometry(result);
+
         return result;
     }
 
     function layout(compositionResult, options) {
-        const safeOptions = isPlainObject(options) ? options : {};
-        const pages = extractCompositionPages(compositionResult);
-        const layoutPages = pages.map((page, index) =>
-            layoutPage(
-                page,
-                index,
-                pages.length,
-                compositionResult,
-                safeOptions
-            )
+        const safeOptions = isPlainObject(options)
+            ? options
+            : {};
+
+        const pages = extractCompositionPages(
+            compositionResult
         );
 
-        const errors = layoutPages.flatMap(page =>
-            page.validation.errors.map(error => ({
-                page: page.number,
-                ...error
-            }))
+        const layoutPages = pages.map(
+            (page, index) =>
+                layoutPage(
+                    page,
+                    index,
+                    pages.length,
+                    compositionResult,
+                    safeOptions
+                )
         );
 
-        const warnings = layoutPages.flatMap(page =>
-            page.validation.warnings.map(warning => ({
-                page: page.number,
-                ...warning
-            }))
+        const errors = layoutPages.flatMap(
+            page =>
+                page.validation.errors.map(
+                    error => ({
+                        page: page.number,
+                        ...error
+                    })
+                )
+        );
+
+        const warnings = layoutPages.flatMap(
+            page =>
+                page.validation.warnings.map(
+                    warning => ({
+                        page: page.number,
+                        ...warning
+                    })
+                )
         );
 
         const deferredTemplates = layoutPages
@@ -1372,7 +1908,7 @@
                 applied: page.template.applied
             }));
 
-        if (deferredTemplates.length) {
+        if (deferredTemplates.length > 0) {
             warnings.push({
                 code: 'UNKNOWN_TEMPLATE_FALLBACK',
                 templates: deferredTemplates
@@ -1390,17 +1926,24 @@
             diagnostics: {
                 errors,
                 warnings,
-                overflow: layoutPages.flatMap(page =>
-                    page.overflow.map(block => ({
-                        page: page.number,
-                        blockId: block.id,
-                        overflowBy: block.overflowBy
-                    }))
+                overflow: layoutPages.flatMap(
+                    page =>
+                        page.overflow.map(
+                            block => ({
+                                page: page.number,
+                                blockId: block.id,
+                                overflowBy:
+                                    block.overflowBy
+                            })
+                        )
                 )
             }
         };
 
-        if (safeOptions.throwOnValidationError && !result.valid) {
+        if (
+            safeOptions.throwOnValidationError &&
+            !result.valid
+        ) {
             throw new LayoutError(
                 'LAYOUT_VALIDATION_FAILED',
                 'LayoutResult contains validation errors.',
@@ -1419,13 +1962,21 @@
         defaults: Object.freeze({
             page: DEFAULT_PAGE,
             density: DEFAULT_DENSITY,
-            minimumBlockHeight: DEFAULT_BLOCK_MIN_HEIGHT
+            minimumBlockHeight:
+                DEFAULT_BLOCK_MIN_HEIGHT
+        }),
+        contracts: Object.freeze({
+            blockIds: BLOCK_IDS.slice(),
+            templates: Object.keys(TEMPLATE_CONFIG)
         })
     });
 
     globalScope[ENGINE_NAME] = publicApi;
 
-    if (typeof module !== 'undefined' && module.exports) {
+    if (
+        typeof module !== 'undefined' &&
+        module.exports
+    ) {
         module.exports = publicApi;
     }
 })(
