@@ -167,15 +167,18 @@ function measureAllBlocks(normalized, visibility, preferredDensity) {
     const adjustedMass = applyDensity(raw.mass, density);
 
     result[id] = Object.freeze({
-      id,
-      data,
-      itemCount: raw.itemCount,
-      textLength: raw.textLength,
-      mass: round(adjustedMass),
-      density,
-      visible,
-      required,
-    });
+
+  id,
+  data,
+  itemCount: raw.itemCount,
+  textLength: raw.textLength,
+  mass: round(adjustedMass),
+  density,
+  visible,
+  required,
+  // Filled later by Layout Engine.
+  layout: null,
+});
   }
 
   return result;
