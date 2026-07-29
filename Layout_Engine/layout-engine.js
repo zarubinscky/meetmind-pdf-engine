@@ -251,38 +251,23 @@
         };
     }
 
-    function extractCompositionPages(composition) {
-        if (!isPlainObject(composition)) {
-            throw new LayoutError(
-                'INVALID_COMPOSITION',
-                'CompositionResult must be an object.'
-            );
-        }
-
-        if (Array.isArray(composition.pages)) {
-            return composition.pages;
-        }
-
-        if (isPlainObject(composition.document) &&
-            Array.isArray(composition.document.pages)) {
-            return composition.document.pages;
-        }
-
-        if (Array.isArray(composition.blocks)) {
-            return [{
-                id: 'page-1',
-                number: 1,
-                blocks: composition.blocks,
-                density: composition.density,
-                template: composition.template
-            }];
-        }
-
+   function extractCompositionPages(composition) {
+    if (!isPlainObject(composition)) {
         throw new LayoutError(
-            'MISSING_PAGES',
-            'CompositionResult must contain pages[] or blocks[].'
+            'INVALID_COMPOSITION',
+            'CompositionResult must be an object.'
         );
     }
+
+    if (!Array.isArray(composition.pages)) {
+        throw new LayoutError(
+            'INVALID_COMPOSITION',
+            'CompositionResult.pages must be an array.'
+        );
+    }
+
+    return composition.pages;
+}
 
     function extractPageBlocks(page) {
         if (Array.isArray(page?.blocks)) {
