@@ -86,14 +86,24 @@ export function composeExecutiveReport(report, options = {}) {
     visibleIds,
   });
 
-  return Object.freeze({
-    version: "1.0",
-    title: normalized.title,
-    date: normalized.date,
-    pages: Object.freeze(pages),
-    blocks: Object.freeze(measured),
-    diagnostics: Object.freeze(diagnostics),
-  });
+ return Object.freeze({
+    number: pageNumber,
+    totalPages,
+    kind,
+    title,
+    date,
+    pageIndicator,
+
+    blockIds: Object.freeze(blockIds.slice()),
+
+    blocks: Object.freeze(
+        blockIds.map(id => measured[id])
+    ),
+
+    regions: Object.freeze(regions),
+
+    estimatedMass: round(sumMass(blockIds, measured)),
+});
 }
 
 export function normalizeReport(report) {
