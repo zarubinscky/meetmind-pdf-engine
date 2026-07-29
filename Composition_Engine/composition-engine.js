@@ -86,24 +86,14 @@ export function composeExecutiveReport(report, options = {}) {
     visibleIds,
   });
 
- return Object.freeze({
-    number: pageNumber,
-    totalPages,
-    kind,
-    title,
-    date,
-    pageIndicator,
-
-    blockIds: Object.freeze(blockIds.slice()),
-
-    blocks: Object.freeze(
-        blockIds.map(id => measured[id])
-    ),
-
-    regions: Object.freeze(regions),
-
-    estimatedMass: round(sumMass(blockIds, measured)),
-});
+  return Object.freeze({
+    version: "1.0",
+    title: normalized.title,
+    date: normalized.date,
+    pages: Object.freeze(pages),
+    blocks: Object.freeze(measured),
+    diagnostics: Object.freeze(diagnostics),
+  });
 }
 
 export function normalizeReport(report) {
@@ -177,18 +167,17 @@ function measureAllBlocks(normalized, visibility, preferredDensity) {
     const adjustedMass = applyDensity(raw.mass, density);
 
     result[id] = Object.freeze({
-
-  id,
-  data,
-  itemCount: raw.itemCount,
-  textLength: raw.textLength,
-  mass: round(adjustedMass),
-  density,
-  visible,
-  required,
-  // Filled later by Layout Engine.
-  layout: null,
-});
+      id,
+      data,
+      itemCount: raw.itemCount,
+      textLength: raw.textLength,
+      mass: round(adjustedMass),
+      density,
+      visible,
+      required,
+      // Filled later by Layout Engine.
+      layout: null,
+    });
   }
 
   return result;
@@ -276,6 +265,7 @@ function createPage({ index, totalPages, title, date, blockIds, measured }) {
     date,
     pageIndicator,
     blockIds: Object.freeze(blockIds.slice()),
+    blocks: Object.freeze(blockIds.map((id) => measured[id])),
     regions: Object.freeze(regions),
     estimatedMass: round(sumMass(blockIds, measured)),
   });
