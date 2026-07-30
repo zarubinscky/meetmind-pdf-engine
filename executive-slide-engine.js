@@ -14,7 +14,6 @@
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
 
     const PAGE_SIZE = Object.freeze([842, 595]);
-
     const BLOCK_TITLES = Object.freeze({
         header: '',
         stats: '',
