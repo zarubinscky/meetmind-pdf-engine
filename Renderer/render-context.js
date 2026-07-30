@@ -1,176 +1,57 @@
 /**
- * MeetMind Executive PDF Engine
- * RenderContext Factory — Release 0.4
+ * render-context.js
+ * Status: READY FOR GITHUB
  *
- * This is a small adapter around an external Drawing Surface.
- * It enforces the frozen page-scoped RenderContext contract.
+ * Thin adapter between Renderer and DrawingSurface.
  */
-(function attachMeetMindRenderContext(globalScope) {
-    'use strict';
 
-    const NAME = 'MeetMindRenderContext';
-    const VERSION = '0.4.0';
+export class RenderContext {
+  constructor(drawingSurface, tokens = null) {
+    this.surface = drawingSurface;
+    this.tokens = tokens;
+  }
 
-    class RenderContextError extends Error {
-        constructor(code, message, details) {
-            super(message);
-            this.name = 'RenderContextError';
-            this.code = code;
-            this.details = details || null;
-        }
-    }
+  get page() {
+    return this.surface.getCurrentPage();
+  }
 
-    function isObject(value) {
-        return Boolean(value) &&
-            typeof value === 'object' &&
-            !Array.isArray(value);
-    }
+  text(value, options) {
+    return this.surface.drawText(value, options);
+  }
 
-    function assertMethod(target, method) {
-        if (typeof target?.[method] !== 'function') {
-            throw new RenderContextError(
-                'MISSING_DRAWING_METHOD',
-                `Drawing Surface must expose ${method}().`
-            );
-        }
-    }
+  rect(options) {
+    return this.surface.drawRect(options);
+  }
 
-    function create(drawingSurface, options) {
-        if (!isObject(drawingSurface)) {
-            throw new RenderContextError(
-                'INVALID_DRAWING_SURFACE',
-                'drawingSurface must be an object.'
-            );
-        }
+  line(options) {
+    return this.surface.drawLine(options);
+  }
 
-        const config = isObject(options) ? options : {};
-        const pageContexts = new Map();
+  circle(options) {
+    return this.surface.drawCircle(options);
+  }
 
-        function createPageContext(page) {
-            if (typeof drawingSurface.createPage === 'function') {
-                drawingSurface.createPage(page.size, page);
-            }
+  image(key, bytes, options) {
+    return this.surface.drawImage(key, bytes, options);
+  }
 
-            const pageHandle =
-                typeof drawingSurface.getCurrentPage === 'function'
-                    ? drawingSurface.getCurrentPage()
-                    : page.number;
+  measureText(text, fontName, size) {
+    return this.surface.measureText(text, fontName, size);
+  }
 
-            const context = {
-                page,
-                pageHandle,
-                tokens: config.tokens || null,
+  getFont(name) {
+    return this.surface.getFont(name);
+  }
 
-                beginPage(currentPage) {
-                    if (typeof drawingSurface.beginPage === 'function') {
-                        drawingSurface.beginPage(pageHandle, currentPage);
-                    }
-                },
+  addPage(size) {
+    return this.surface.addPage(size);
+  }
 
-                endPage(currentPage) {
-                    if (typeof drawingSurface.endPage === 'function') {
-                        drawingSurface.endPage(pageHandle, currentPage);
-                    }
-                },
+  setCurrentPage(page) {
+    this.surface.setCurrentPage(page);
+  }
 
-                text(value, geometry, style) {
-                    assertMethod(drawingSurface, 'drawText');
-                    return drawingSurface.drawText(
-                        pageHandle,
-                        String(value ?? ''),
-                        geometry,
-                        style || {}
-                    );
-                },
-
-                rect(geometry, style) {
-                    assertMethod(drawingSurface, 'drawRect');
-                    return drawingSurface.drawRect(
-                        pageHandle,
-                        geometry,
-                        style || {}
-                    );
-                },
-
-                line(from, to, style) {
-                    assertMethod(drawingSurface, 'drawLine');
-                    return drawingSurface.drawLine(
-                        pageHandle,
-                        from,
-                        to,
-                        style || {}
-                    );
-                },
-
-                icon(icon, geometry, style) {
-                    assertMethod(drawingSurface, 'drawIcon');
-                    return drawingSurface.drawIcon(
-                        pageHandle,
-                        icon,
-                        geometry,
-                        style || {}
-                    );
-                },
-
-                table(model, geometry, style) {
-                    if (typeof drawingSurface.drawTable !== 'function') {
-                        throw new RenderContextError(
-                            'MISSING_DRAWING_METHOD',
-                            'Drawing Surface must expose drawTable() for table rendering.'
-                        );
-                    }
-                    return drawingSurface.drawTable(
-                        pageHandle,
-                        model,
-                        geometry,
-                        style || {}
-                    );
-                }
-            };
-
-            return Object.freeze(context);
-        }
-
-        function getPageContext(page) {
-            const key = page.id || page.number;
-            if (!pageContexts.has(key)) {
-                pageContexts.set(key, createPageContext(page));
-            }
-            return pageContexts.get(key);
-        }
-
-        function finalize(layoutResult) {
-            if (typeof drawingSurface.finalize === 'function') {
-                return drawingSurface.finalize(layoutResult);
-            }
-            return null;
-        }
-
-        return Object.freeze({
-            name: NAME,
-            version: VERSION,
-            getPageContext,
-            forPage: getPageContext,
-            finalize
-        });
-    }
-
-    const api = Object.freeze({
-        name: NAME,
-        version: VERSION,
-        create,
-        RenderContextError
-    });
-
-    globalScope[NAME] = api;
-
-    if (typeof module !== 'undefined' && module.exports) {
-        module.exports = api;
-    }
-})(
-    typeof globalThis !== 'undefined'
-        ? globalThis
-        : typeof window !== 'undefined'
-            ? window
-            : this
-);
+  save() {
+    return this.surface.save();
+  }
+}
