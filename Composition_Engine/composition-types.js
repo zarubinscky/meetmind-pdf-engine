@@ -16,10 +16,14 @@
  */
 
 export const BLOCK_IDS = Object.freeze({
+
   HEADER: "header",
-  MEETING_STATS: "meetingStats",
-  EXECUTIVE_SUMMARY: "executiveSummary",
-  KEY_METRICS: "keyMetrics",
+
+  MEETING_STATS: "stats",
+
+  EXECUTIVE_SUMMARY: "summary",
+
+  KEY_METRICS: "metrics",
   INSIGHTS: "insights",
   DECISIONS: "decisions",
   RISKS: "risks",
