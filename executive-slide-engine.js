@@ -445,7 +445,6 @@
             );
             return;
         }
-
         if (block.id === 'stats') {
             const value = blockLines(block).join('   •   ');
 
