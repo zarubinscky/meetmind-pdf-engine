@@ -1,5 +1,7 @@
 (function (global) {
     'use strict';
+     const ENGINE_BASE =
+        'https://zarubinscky.github.io/meetmind-pdf-engine/';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
     const ENGINE_VERSION = '0.1.0-mvp';
@@ -29,16 +31,6 @@
     });
 
     let dependenciesPromise = null;
-
-    function resolveUrl(relativePath) {
-        const currentScript = document.currentScript;
-
-        if (currentScript?.src) {
-            return new URL(relativePath, currentScript.src).href;
-        }
-
-        return new URL(relativePath, window.location.href).href;
-    }
 
     function loadClassicScript(src) {
         return new Promise((resolve, reject) => {
@@ -91,16 +83,25 @@
         }
 
         dependenciesPromise = (async () => {
-            const [
-                compositionModule,
-                drawingModule,
-                pdfLib
-            ] = await Promise.all([
-                import(resolveUrl(MODULE_PATHS.composition)),
-                import(resolveUrl(MODULE_PATHS.drawingSurface)),
-                ensurePdfLib(),
-                import(resolveUrl(MODULE_PATHS.layout))
-            ]);
+           const [
+
+    compositionModule,
+
+    drawingModule,
+
+    pdfLib
+
+] = await Promise.all([
+
+    import(ENGINE_BASE + 'Composition_Engine/composition-engine.js'),
+
+    import(ENGINE_BASE + 'drawing/drawing-surface.js'),
+
+    ensurePdfLib(),
+
+    import(ENGINE_BASE + 'Layout_Engine/layout-engine.js')
+
+]);
 
             const compose =
                 compositionModule.composeExecutiveReport ||
