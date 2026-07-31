@@ -49,6 +49,11 @@ export function composeExecutiveReport(report, options = {}) {
   validateCompositionRules(COMPOSITION_RULES);
 
   const normalized = normalizeReport(report);
+  
+  console.log("=== BLOCK_IDS ===");
+  console.log(BLOCK_IDS);
+  console.log("EXECUTIVE_SUMMARY =", BLOCK_IDS.EXECUTIVE_SUMMARY);
+  
   const capacity = resolveCapacity(options.pageCapacity);
   const allowSecondPage = options.allowSecondPage !== false;
 
@@ -85,6 +90,17 @@ export function composeExecutiveReport(report, options = {}) {
     measured,
     visibleIds,
   });
+
+
+  console.log("=== COMPOSITION RESULT ===");
+console.log("Measured block ids:", measured.map(b => b.id));
+console.log("Pages:");
+console.log(
+    pages.map(page => ({
+        page: page.number,
+        blocks: page.blocks.map(b => b.id)
+    }))
+);
 
   return Object.freeze({
     version: "1.0",
