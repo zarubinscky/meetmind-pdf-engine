@@ -321,7 +321,7 @@
         for (const word of words) {
             const candidate = current ? `${current} ${word}` : word;
 
-            if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+            if (estimateWidth(candidate, size) <= maxWidth) {
                 current = candidate;
                 continue;
             }
@@ -330,7 +330,7 @@
                 lines.push(current);
             }
 
-            if (font.widthOfTextAtSize(word, size) <= maxWidth) {
+            if (estimateWidth(word, size) <= maxWidth) {
                 current = word;
                 continue;
             }
@@ -338,7 +338,11 @@
             let fragment = '';
             for (const char of word) {
                 const next = fragment + char;
-                if (font.widthOfTextAtSize(next, size) <= maxWidth) {
+                function estimateWidth(text, fontSize) {
+
+    return String(text).length * fontSize * 0.56;
+
+}
                     fragment = next;
                 } else {
                     if (fragment) lines.push(fragment);
