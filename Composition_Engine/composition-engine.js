@@ -2,6 +2,7 @@
  * MeetMind Executive PDF Engine
  * Composition Engine v1.0
  *
+ 
  * Responsibilities:
  * - normalize report_json into canonical block data;
  * - apply visibility and empty-block filtering;
