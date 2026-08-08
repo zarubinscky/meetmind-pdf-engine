@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.0.0-golden';
+    const ENGINE_VERSION = '1.1.0-golden-real-measurement';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.0.0';
+    const CACHE_VERSION = 'golden-1.1.0';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
@@ -244,6 +244,52 @@
         return Object.freeze(map);
     }
 
+
+    function ensureServiceBlocks(compositionResult, report) {
+        const sourceBlocks = Array.isArray(compositionResult?.blocks)
+            ? compositionResult.blocks
+            : Array.isArray(compositionResult?.pages)
+                ? compositionResult.pages.flatMap(page =>
+                    Array.isArray(page.blocks) ? page.blocks : []
+                )
+                : [];
+
+        const blocks = sourceBlocks.slice();
+        const ids = new Set(blocks.map(block => block?.id || block?.type));
+
+        if (!ids.has('header')) {
+            blocks.unshift(Object.freeze({
+                id: 'header',
+                type: 'header',
+                data: Object.freeze({})
+            }));
+        }
+
+        if (!ids.has('meetingStats') && !ids.has('stats')) {
+            const stats = Object.freeze({
+                participants: Array.isArray(report?.participants) ? report.participants.length : 0,
+                tasks: Array.isArray(report?.tasks) ? report.tasks.length : 0,
+                decisions: Array.isArray(report?.decisions) ? report.decisions.length : 0,
+                risks: Array.isArray(report?.risks) ? report.risks.length : 0
+            });
+
+            const headerIndex = blocks.findIndex(block =>
+                (block?.id || block?.type) === 'header'
+            );
+
+            blocks.splice(Math.max(0, headerIndex + 1), 0, Object.freeze({
+                id: 'meetingStats',
+                type: 'meetingStats',
+                data: stats
+            }));
+        }
+
+        return Object.freeze({
+            ...compositionResult,
+            blocks: Object.freeze(blocks)
+        });
+    }
+
     function stampResolvedDensity(layoutResult) {
         const density = layoutResult.density || 'regular';
 
@@ -402,16 +448,28 @@
 
         const dependencies = await loadDependencies();
 
-        const compositionResult = dependencies.compose(
+        // Register Inter BEFORE layout so physical fit is measured with
+        // the same real glyph widths that Renderer will draw.
+        const surface = await createSurface(dependencies);
+
+        const rawCompositionResult = dependencies.compose(
             report,
             buildCompositionOptions(options)
         );
 
+        const compositionResult = ensureServiceBlocks(
+            rawCompositionResult,
+            report
+        );
+
         const rawLayoutResult = dependencies.layout(
             compositionResult,
-            isPlainObject(options.layout)
-                ? options.layout
-                : {}
+            {
+                ...(isPlainObject(options.layout) ? options.layout : {}),
+                tokens: dependencies.design.TOKENS,
+                measureText: (text, fontName, sizePt) =>
+                    surface.measureText(text, fontName, sizePt)
+            }
         );
 
         const layoutResult = stampResolvedDensity(
@@ -424,8 +482,6 @@
                 layoutResult.diagnostics
             );
         }
-
-        const surface = await createSurface(dependencies);
 
         const renderContext =
             new dependencies.RenderContext(
