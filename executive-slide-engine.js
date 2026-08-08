@@ -13,7 +13,10 @@
     });
 
     const PDF_LIB_CDN =
-        'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+    'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+
+    const FONTKIT_CDN =
+    'https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js';
 
     const PAGE_SIZE = Object.freeze([842, 595]);
     const BLOCK_TITLES = Object.freeze({
@@ -77,73 +80,94 @@
         return global.PDFLib;
     }
 
-    async function loadDependencies() {
-        if (dependenciesPromise) {
-            return dependenciesPromise;
-        }
+    async function ensureFontkit() {
+    if (global.fontkit) {
+        return global.fontkit;
+    }
 
-        dependenciesPromise = (async () => {
-           const [
+    await loadClassicScript(FONTKIT_CDN);
 
-    compositionModule,
+    if (!global.fontkit) {
+        throw new Error(
+            'fontkit was not found after loading @pdf-lib/fontkit.'
+        );
+    }
 
-    drawingModule,
+    return global.fontkit;
+}
 
-    pdfLib
-
-] = await Promise.all([
-
-    import(ENGINE_BASE + 'Composition_Engine/composition-engine.js'),
-
-    import(ENGINE_BASE + 'drawing/drawing-surface.js'),
-
-    ensurePdfLib(),
-
-    import(ENGINE_BASE + 'Layout_Engine/layout-engine.js')
-
-]);
-
-            const compose =
-                compositionModule.composeExecutiveReport ||
-                compositionModule.default?.composeExecutiveReport;
-
-            const DrawingSurface =
-                drawingModule.DrawingSurface ||
-                drawingModule.default?.DrawingSurface;
-
-            const layout =
-                global.MeetMindLayoutEngine?.layout;
-
-            if (typeof compose !== 'function') {
-                throw new Error(
-                    'Composition Engine did not export composeExecutiveReport().'
-                );
-            }
-
-            if (typeof layout !== 'function') {
-                throw new Error(
-                    'Layout Engine did not expose MeetMindLayoutEngine.layout().'
-                );
-            }
-
-            if (typeof DrawingSurface !== 'function') {
-                throw new Error(
-                    'drawing-surface.js did not export DrawingSurface.'
-                );
-            }
-
-            return Object.freeze({
-                compose,
-                layout,
-                DrawingSurface,
-                PDFDocument: pdfLib.PDFDocument,
-                StandardFonts: pdfLib.StandardFonts,
-                rgb: pdfLib.rgb
-            });
-        })();
-
+   async function loadDependencies() {
+    if (dependenciesPromise) {
         return dependenciesPromise;
     }
+
+    dependenciesPromise = (async () => {
+        const [
+            compositionModule,
+            drawingModule,
+            pdfLib,
+            fontkit
+        ] = await Promise.all([
+            import(
+                ENGINE_BASE +
+                'Composition_Engine/composition-engine.js'
+            ),
+
+            import(
+                ENGINE_BASE +
+                'drawing/drawing-surface.js'
+            ),
+
+            ensurePdfLib(),
+            ensureFontkit(),
+
+            import(
+                ENGINE_BASE +
+                'Layout_Engine/layout-engine.js'
+            )
+        ]);
+
+        const compose =
+            compositionModule.composeExecutiveReport ||
+            compositionModule.default?.composeExecutiveReport;
+
+        const DrawingSurface =
+            drawingModule.DrawingSurface ||
+            drawingModule.default?.DrawingSurface;
+
+        const layout =
+            global.MeetMindLayoutEngine?.layout;
+
+        if (typeof compose !== 'function') {
+            throw new Error(
+                'Composition Engine did not export composeExecutiveReport().'
+            );
+        }
+
+        if (typeof layout !== 'function') {
+            throw new Error(
+                'Layout Engine did not expose MeetMindLayoutEngine.layout().'
+            );
+        }
+
+        if (typeof DrawingSurface !== 'function') {
+            throw new Error(
+                'drawing-surface.js did not export DrawingSurface.'
+            );
+        }
+
+        return Object.freeze({
+            compose,
+            layout,
+            DrawingSurface,
+            PDFDocument: pdfLib.PDFDocument,
+            fontkit,
+            rgb: pdfLib.rgb
+        });
+    })();
+
+    return dependenciesPromise;
+}
 
     function isPlainObject(value) {
         return Boolean(value) &&
@@ -543,22 +567,41 @@ function wrapText(text, font, size, maxWidth) {
 
     async function renderPdf(layoutResult, dependencies) {
         const {
-            DrawingSurface,
-            PDFDocument,
-            StandardFonts,
-            rgb
-        } = dependencies;
-
+          DrawingSurface,
+          PDFDocument,
+          fontkit,
+          rgb
+          } = dependencies;
+        
         const surface = await DrawingSurface.create({
-            PDFDocument
-        });
+            PDFDocument,
+            fontkit
+});
+        
+        const FONT_BASE =
+    'https://zarubinscky.github.io/meetmind-pdf-engine/fonts/';
 
-        const regularFont = await surface.pdf.embedFont(
-            StandardFonts.Helvetica
-        );
-        const boldFont = await surface.pdf.embedFont(
-            StandardFonts.HelveticaBold
-        );
+const [regularFontBytes, boldFontBytes] = await Promise.all([
+    fetch(FONT_BASE + 'NotoSans-Regular.ttf').then(r => {
+        if (!r.ok) {
+            throw new Error(
+                `Failed to load NotoSans-Regular.ttf: ${r.status}`
+            );
+        }
+        return r.arrayBuffer();
+    }),
+    fetch(FONT_BASE + 'NotoSans-Bold.ttf').then(r => {
+        if (!r.ok) {
+            throw new Error(
+                `Failed to load NotoSans-Bold.ttf: ${r.status}`
+            );
+        }
+        return r.arrayBuffer();
+    })
+]);
+
+const regularFont = await surface.pdf.embedFont(regularFontBytes);
+const boldFont = await surface.pdf.embedFont(boldFontBytes);
 
         for (const layoutPage of layoutResult.pages) {
             surface.addPage(PAGE_SIZE);
