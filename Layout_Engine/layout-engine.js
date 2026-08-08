@@ -1,1988 +1,475 @@
 /**
  * MeetMind Executive PDF Engine
- * Layout Engine — v1.0.0
+ * Layout Engine — Golden Implementation v1.0
  *
- * Responsibility:
- *   Convert a strict CompositionResult into deterministic page geometry.
+ * Public contract preserved:
+ *   MeetMindLayoutEngine.layout(compositionResult, options?)
  *
- * Input contract:
- *   CompositionResult {
- *     pages: CompositionPage[]
- *   }
+ * Responsibilities:
+ * - content-driven geometry
+ * - Regular -> Compact -> Dense fit evaluation
+ * - deterministic page geometry on the canonical 768 x 512 pt canvas
+ * - no clipping/truncation/content deletion
  *
- *   CompositionPage {
- *     id?: string,
- *     number?: number,
- *     template?: string,
- *     density?: 'regular' | 'compact' | 'dense' | 'truncated',
- *     blocks: CompositionBlock[]
- *   }
- *
- *   CompositionBlock {
- *     id: string,
- *     data: unknown,
- *     itemCount: number,
- *     textLength: number,
- *     mass: number,
- *     density: string,
- *     visible: boolean,
- *     required: boolean,
- *     layout: null
- *   }
- *
- * Output contract:
- *   LayoutResult contains the same logical block model enriched with:
- *
- *   block.layout = {
- *     pageNumber,
- *     region,
- *     column,
- *     order,
- *     role,
- *     fits,
- *     geometry: { x, y, width, height }
- *   }
- *
- * Explicitly out of scope:
- *   - report_json normalization
- *   - visibility decisions
- *   - business priority
- *   - pagination decisions
- *   - exact glyph measurement
- *   - PDF drawing
- *
- * Browser:
- *   const result = MeetMindLayoutEngine.layout(compositionResult, options);
- *
- * CommonJS:
- *   const LayoutEngine = require('./layout-engine');
+ * Golden reference geometry is used as a target, never as fixture-specific branching.
  */
-
-(function attachMeetMindLayoutEngine(globalScope) {
+(function (global) {
     'use strict';
 
-    const ENGINE_NAME = 'MeetMindLayoutEngine';
-    const ENGINE_VERSION = '1.0.0';
+    const PAGE = Object.freeze({ width: 768, height: 512 });
 
-    const BLOCK_IDS = Object.freeze([
-        'header',
-        'stats',
-        'summary',
-        'metrics',
-        'insights',
-        'decisions',
-        'risks',
-        'tasks',
-        'architecture',
-        'owners',
-        'footer'
-    ]);
-
-    const BLOCK_ID_SET = new Set(BLOCK_IDS);
-
-    const SERVICE_IDS = new Set([
-        'header',
-        'stats',
-        'footer'
-    ]);
-
-    const EXECUTIVE_IDS = new Set([
-        'summary',
-        'metrics',
-        'insights',
-        'decisions',
-        'risks'
-    ]);
-
-    const DEFAULT_PAGE = Object.freeze({
-        width: 1600,
-        height: 900,
-        margin: Object.freeze({
-            top: 34,
-            right: 48,
-            bottom: 28,
-            left: 48
-        }),
-        headerHeight: 62,
-        statsHeight: 42,
-        footerHeight: 24,
-        sectionGap: 14,
-        columnGap: 14,
-        rowGap: 14,
-        cardRadius: 14
-    });
-
-    const DEFAULT_DENSITY = Object.freeze({
+    const MODES = Object.freeze({
         regular: Object.freeze({
-            blockPadding: 18,
-            sectionTitleHeight: 24,
-            lineHeight: 20,
-            itemGap: 9,
-            tableHeaderHeight: 26,
-            tableRowHeight: 31,
-            metricHeight: 72,
-            architectureCardHeight: 72
+            marginX: 10, marginTop: 9, marginBottom: 8,
+            sectionGap: 6, cardGap: 5, columnGap: 5,
+            padX: 8, padY: 7, lineGap: 3,
+            body: 8.0, bodyLine: 10.0, small: 6.8, smallLine: 8.4,
+            blockTitle: 8.5, blockTitleLine: 10.5,
+            taskHeader: 6.6, taskBody: 6.8, taskLine: 8.2
         }),
         compact: Object.freeze({
-            blockPadding: 14,
-            sectionTitleHeight: 22,
-            lineHeight: 18,
-            itemGap: 7,
-            tableHeaderHeight: 24,
-            tableRowHeight: 27,
-            metricHeight: 64,
-            architectureCardHeight: 64
+            marginX: 10, marginTop: 8, marginBottom: 7,
+            sectionGap: 4.5, cardGap: 4, columnGap: 4,
+            padX: 7, padY: 5.5, lineGap: 2.2,
+            body: 7.4, bodyLine: 9.0, small: 6.4, smallLine: 7.8,
+            blockTitle: 8.0, blockTitleLine: 9.6,
+            taskHeader: 6.2, taskBody: 6.4, taskLine: 7.6
         }),
         dense: Object.freeze({
-            blockPadding: 11,
-            sectionTitleHeight: 20,
-            lineHeight: 16,
-            itemGap: 5,
-            tableHeaderHeight: 22,
-            tableRowHeight: 23,
-            metricHeight: 56,
-            architectureCardHeight: 56
-        }),
-        truncated: Object.freeze({
-            blockPadding: 11,
-            sectionTitleHeight: 20,
-            lineHeight: 16,
-            itemGap: 5,
-            tableHeaderHeight: 22,
-            tableRowHeight: 23,
-            metricHeight: 56,
-            architectureCardHeight: 56
+            marginX: 10, marginTop: 7, marginBottom: 6,
+            sectionGap: 3, cardGap: 3, columnGap: 3,
+            padX: 6, padY: 4.5, lineGap: 1.5,
+            body: 6.8, bodyLine: 8.0, small: 6.0, smallLine: 7.0,
+            blockTitle: 7.4, blockTitleLine: 8.8,
+            taskHeader: 5.9, taskBody: 6.0, taskLine: 7.0
         })
     });
 
-    const DEFAULT_BLOCK_MIN_HEIGHT = Object.freeze({
-        header: 62,
-        stats: 42,
-        summary: 96,
-        metrics: 72,
-        insights: 96,
-        decisions: 96,
-        risks: 96,
-        tasks: 104,
-        architecture: 110,
-        owners: 74,
-        footer: 24
+    const ORDER = [
+        'header', 'meetingStats', 'executiveSummary', 'keyMetrics',
+        'insights', 'decisions', 'risks', 'tasks', 'architecture',
+        'owners', 'footer'
+    ];
+
+    const aliases = Object.freeze({
+        summary: 'executiveSummary',
+        metrics: 'keyMetrics',
+        stats: 'meetingStats'
     });
 
-    const TEMPLATE_CONFIG = Object.freeze({
-        'vertical-flow': Object.freeze({
-            columns: 1,
-            dominantBlock: null,
-            dominantRatio: 1
-        }),
-        balanced: Object.freeze({
-            columns: 2,
-            dominantBlock: null,
-            dominantRatio: 1
-        }),
-        'dominant-insights': Object.freeze({
-            columns: 2,
-            dominantBlock: 'insights',
-            dominantRatio: 1.45
-        }),
-        'dominant-decisions': Object.freeze({
-            columns: 2,
-            dominantBlock: 'decisions',
-            dominantRatio: 1.45
-        }),
-        'dominant-risks': Object.freeze({
-            columns: 2,
-            dominantBlock: 'risks',
-            dominantRatio: 1.45
-        }),
-        'continuation-page': Object.freeze({
-            columns: 1,
-            dominantBlock: null,
-            dominantRatio: 1
-        })
-    });
-
-    class LayoutError extends Error {
-        constructor(code, message, details) {
-            super(message);
-            this.name = 'LayoutError';
-            this.code = code;
-            this.details = details || null;
-        }
+    function idOf(block) {
+        return aliases[block?.id] || block?.id || block?.type || '';
     }
 
-    function isPlainObject(value) {
-        return Boolean(value) &&
-            typeof value === 'object' &&
-            !Array.isArray(value);
-    }
-
-    function finiteNumber(value, fallback) {
-        return Number.isFinite(value) ? value : fallback;
-    }
-
-    function positiveNumber(value, fallback) {
-        return Number.isFinite(value) && value > 0 ? value : fallback;
-    }
-
-    function clone(value) {
-        if (typeof structuredClone === 'function') {
-            return structuredClone(value);
+    function cleanText(value) {
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            return String(value).replace(/\s+/g, ' ').trim();
         }
-
-        if (value === undefined) {
-            return undefined;
-        }
-
-        return JSON.parse(JSON.stringify(value));
-    }
-
-    function normalizeToken(value) {
-        return String(value || '')
-            .trim()
-            .toLowerCase()
-            .replace(/[\s_]+/g, '-');
-    }
-
-    function normalizePageConfig(options) {
-        const source = isPlainObject(options?.page)
-            ? options.page
-            : {};
-        const marginSource = isPlainObject(source.margin)
-            ? source.margin
-            : {};
-
-        return {
-            width: positiveNumber(source.width, DEFAULT_PAGE.width),
-            height: positiveNumber(source.height, DEFAULT_PAGE.height),
-            margin: {
-                top: finiteNumber(
-                    marginSource.top,
-                    DEFAULT_PAGE.margin.top
-                ),
-                right: finiteNumber(
-                    marginSource.right,
-                    DEFAULT_PAGE.margin.right
-                ),
-                bottom: finiteNumber(
-                    marginSource.bottom,
-                    DEFAULT_PAGE.margin.bottom
-                ),
-                left: finiteNumber(
-                    marginSource.left,
-                    DEFAULT_PAGE.margin.left
-                )
-            },
-            headerHeight: positiveNumber(
-                source.headerHeight,
-                DEFAULT_PAGE.headerHeight
-            ),
-            statsHeight: positiveNumber(
-                source.statsHeight,
-                DEFAULT_PAGE.statsHeight
-            ),
-            footerHeight: positiveNumber(
-                source.footerHeight,
-                DEFAULT_PAGE.footerHeight
-            ),
-            sectionGap: finiteNumber(
-                source.sectionGap,
-                DEFAULT_PAGE.sectionGap
-            ),
-            columnGap: finiteNumber(
-                source.columnGap,
-                DEFAULT_PAGE.columnGap
-            ),
-            rowGap: finiteNumber(
-                source.rowGap,
-                DEFAULT_PAGE.rowGap
-            ),
-            cardRadius: finiteNumber(
-                source.cardRadius,
-                DEFAULT_PAGE.cardRadius
-            )
-        };
-    }
-
-    function extractCompositionPages(composition) {
-        if (!isPlainObject(composition)) {
-            throw new LayoutError(
-                'INVALID_COMPOSITION',
-                'CompositionResult must be an object.'
-            );
-        }
-
-        if (!Array.isArray(composition.pages)) {
-            throw new LayoutError(
-                'INVALID_COMPOSITION',
-                'CompositionResult.pages must be an array.'
-            );
-        }
-
-        if (composition.pages.length === 0) {
-            throw new LayoutError(
-                'EMPTY_COMPOSITION',
-                'CompositionResult.pages must contain at least one page.'
-            );
-        }
-
-        return composition.pages;
-    }
-
-    function assertCompositionPage(page, pageIndex) {
-        if (!isPlainObject(page)) {
-            throw new LayoutError(
-                'INVALID_PAGE',
-                `Page at index ${pageIndex} must be an object.`,
-                { pageIndex, page }
-            );
-        }
-
-        if (!Array.isArray(page.blocks)) {
-            throw new LayoutError(
-                'INVALID_PAGE_BLOCKS',
-                `Page at index ${pageIndex} must contain blocks[].`,
-                { pageIndex }
-            );
-        }
-
-        return page;
-    }
-
-    function assertCompositionBlock(block, blockIndex, pageIndex) {
-        if (!isPlainObject(block)) {
-            throw new LayoutError(
-                'INVALID_BLOCK',
-                `Block at page ${pageIndex + 1}, index ${blockIndex} must be an object.`,
-                { pageIndex, blockIndex, block }
-            );
-        }
-
-        if (typeof block.id !== 'string' || !block.id.trim()) {
-            throw new LayoutError(
-                'MISSING_BLOCK_ID',
-                `Block at page ${pageIndex + 1}, index ${blockIndex} must have id.`,
-                { pageIndex, blockIndex }
-            );
-        }
-
-        const id = normalizeToken(block.id);
-
-        if (!BLOCK_ID_SET.has(id)) {
-            throw new LayoutError(
-                'UNKNOWN_BLOCK_ID',
-                `Unsupported CompositionBlock id "${block.id}".`,
-                {
-                    pageIndex,
-                    blockIndex,
-                    blockId: block.id,
-                    allowed: BLOCK_IDS
-                }
-            );
-        }
-
-        if (block.layout !== null && block.layout !== undefined) {
-            throw new LayoutError(
-                'BLOCK_ALREADY_LAID_OUT',
-                `CompositionBlock "${id}" must enter Layout Engine with layout: null.`,
-                { pageIndex, blockIndex, blockId: id }
-            );
-        }
-
-        return {
-            ...block,
-            id,
-            sourceIndex: blockIndex
-        };
-    }
-
-    function resolveDensity(page, composition, options) {
-        const raw =
-            page?.density ||
-            composition?.density ||
-            options?.density ||
-            'regular';
-
-        const density = normalizeToken(raw);
-
-        return DEFAULT_DENSITY[density]
-            ? density
-            : 'regular';
-    }
-
-    function resolveDensityTokens(density, options) {
-        const override = isPlainObject(options?.densityTokens?.[density])
-            ? options.densityTokens[density]
-            : {};
-
-        return {
-            ...DEFAULT_DENSITY[density],
-            ...override
-        };
-    }
-
-    function resolveTemplate(page) {
-        const raw =
-            page?.template ||
-            page?.layoutTemplate ||
-            (page?.continuation ? 'continuation-page' : 'vertical-flow');
-
-        const requested = normalizeToken(raw) || 'vertical-flow';
-
-        const applied = TEMPLATE_CONFIG[requested]
-            ? requested
-            : 'vertical-flow';
-
-        return {
-            requested,
-            applied,
-            deferred: requested !== applied,
-            config: TEMPLATE_CONFIG[applied]
-        };
-    }
-
-    function dataArray(block) {
-        if (Array.isArray(block.data)) {
-            return block.data;
-        }
-
-        if (isPlainObject(block.data)) {
-            if (Array.isArray(block.data.items)) {
-                return block.data.items;
-            }
-            if (Array.isArray(block.data.rows)) {
-                return block.data.rows;
-            }
-            if (Array.isArray(block.data.sections)) {
-                return block.data.sections;
-            }
-            if (Array.isArray(block.data.metrics)) {
-                return block.data.metrics;
-            }
-            if (Array.isArray(block.data.tasks)) {
-                return block.data.tasks;
-            }
-        }
-
-        return [];
-    }
-
-    function dataText(block) {
-        if (typeof block.data === 'string') {
-            return block.data;
-        }
-
-        if (!isPlainObject(block.data)) {
-            return '';
-        }
-
-        const candidates = [
-            block.data.text,
-            block.data.summary,
-            block.data.description,
-            block.data.details,
-            block.data.value
-        ];
-
-        for (const candidate of candidates) {
-            if (typeof candidate === 'string' && candidate.trim()) {
-                return candidate;
-            }
-        }
-
         return '';
     }
 
-    function estimateTextLines(text, width, densityTokens) {
-        const value = String(text || '').trim();
-
-        if (!value) {
-            return 0;
+    function textOf(value) {
+        if (value === null || value === undefined) return '';
+        if (typeof value !== 'object') return cleanText(value);
+        for (const key of ['text','summary','description','title','label','value','task','name','role','owner','dueDate','due_date']) {
+            const v = cleanText(value[key]);
+            if (v) return v;
         }
-
-        const averageCharacterWidth =
-            densityTokens.lineHeight * 0.43;
-
-        const charactersPerLine = Math.max(
-            12,
-            Math.floor(width / averageCharacterWidth)
-        );
-
-        return value
-            .split(/\n+/)
-            .reduce((total, paragraph) => {
-                const length = Math.max(
-                    1,
-                    paragraph.trim().length
-                );
-
-                return total +
-                    Math.ceil(length / charactersPerLine);
-            }, 0);
+        return '';
     }
 
-    function estimateSummaryHeight(block, width, tokens) {
-        const bodyWidth = Math.max(
-            80,
-            width - tokens.blockPadding * 2
-        );
-
-        const lines = Math.max(
-            2,
-            estimateTextLines(
-                dataText(block),
-                bodyWidth,
-                tokens
-            )
-        );
-
-        return tokens.blockPadding * 2 +
-            tokens.sectionTitleHeight +
-            lines * tokens.lineHeight;
-    }
-
-    function extractItemText(item) {
-        if (typeof item === 'string') {
-            return {
-                title: item,
-                details: ''
-            };
-        }
-
-        if (!isPlainObject(item)) {
-            return {
-                title: String(item ?? ''),
-                details: ''
-            };
-        }
-
-        return {
-            title:
-                item.title ||
-                item.name ||
-                item.item ||
-                item.task ||
-                item.owner ||
-                '',
-            details:
-                item.details ||
-                item.description ||
-                item.text ||
-                item.responsibility ||
-                item.deadline ||
-                item.dueDate ||
-                item.due_date ||
-                ''
-        };
-    }
-
-    function estimateListHeight(block, width, tokens) {
-        const items = dataArray(block);
-        const bodyWidth = Math.max(
-            80,
-            width - tokens.blockPadding * 2
-        );
-
-        const contentHeight = items.reduce((total, item) => {
-            const text = extractItemText(item);
-
-            const titleLines = Math.max(
-                1,
-                estimateTextLines(
-                    text.title,
-                    bodyWidth,
-                    tokens
-                )
-            );
-
-            const detailLines = estimateTextLines(
-                text.details,
-                bodyWidth,
-                tokens
-            );
-
-            return total +
-                (titleLines + detailLines) * tokens.lineHeight +
-                tokens.itemGap;
-        }, 0);
-
-        const fallbackRows = items.length > 0
-            ? 0
-            : Math.max(1, finiteNumber(block.itemCount, 1));
-
-        return tokens.blockPadding * 2 +
-            tokens.sectionTitleHeight +
-            contentHeight +
-            fallbackRows * tokens.lineHeight;
-    }
-
-    function estimateMetricsHeight(block, width, tokens, pageConfig) {
-        const metrics = dataArray(block);
-        const count = Math.max(
-            1,
-            metrics.length || finiteNumber(block.itemCount, 1)
-        );
-
-        const minimumCardWidth = 150;
-
-        const columns = Math.max(
-            1,
-            Math.floor(
-                (width + pageConfig.columnGap) /
-                (minimumCardWidth + pageConfig.columnGap)
-            )
-        );
-
-        const rows = Math.ceil(count / columns);
-
-        return tokens.blockPadding * 2 +
-            tokens.sectionTitleHeight +
-            rows * tokens.metricHeight +
-            Math.max(0, rows - 1) * tokens.itemGap;
-    }
-
-    function estimateTasksHeight(block, tokens) {
-        const rows = dataArray(block);
-
-        const rowCount = Math.max(
-            1,
-            rows.length || finiteNumber(block.itemCount, 1)
-        );
-
-        return tokens.blockPadding * 2 +
-            tokens.sectionTitleHeight +
-            tokens.tableHeaderHeight +
-            rowCount * tokens.tableRowHeight;
-    }
-
-    function countArchitectureCards(block) {
-        const sections = dataArray(block);
-
-        if (sections.length === 0) {
-            return Math.max(
-                1,
-                finiteNumber(block.itemCount, 1)
-            );
-        }
-
-        return sections.reduce((total, section) => {
-            if (Array.isArray(section?.items)) {
-                return total + Math.max(1, section.items.length);
-            }
-            return total + 1;
-        }, 0);
-    }
-
-    function estimateArchitectureHeight(
-        block,
-        width,
-        tokens,
-        pageConfig
-    ) {
-        const cards = countArchitectureCards(block);
-        const minimumCardWidth = 210;
-
-        const columns = Math.max(
-            1,
-            Math.min(
-                4,
-                Math.floor(
-                    (width + pageConfig.columnGap) /
-                    (minimumCardWidth + pageConfig.columnGap)
-                )
-            )
-        );
-
-        const rows = Math.ceil(cards / columns);
-
-        return tokens.blockPadding * 2 +
-            tokens.sectionTitleHeight +
-            rows * tokens.architectureCardHeight +
-            Math.max(0, rows - 1) * tokens.itemGap;
-    }
-
-    function explicitBlockHeight(block) {
-        const candidates = [
-            block.estimatedHeight,
-            block.height,
-            block.data?.estimatedHeight,
-            block.data?.height
-        ];
-
-        for (const candidate of candidates) {
-            if (Number.isFinite(candidate) && candidate > 0) {
-                return candidate;
+    function arrayOf(block) {
+        const c = block?.content ?? block?.data ?? block?.items ?? block?.value;
+        if (Array.isArray(c)) return c;
+        if (c && typeof c === 'object') {
+            for (const key of ['items','metrics','tasks','sections','owners','participants','values']) {
+                if (Array.isArray(c[key])) return c[key];
             }
         }
-
-        return null;
+        return [];
     }
 
-    function estimateBlockHeight(block, width, context) {
-        const explicitHeight = explicitBlockHeight(block);
+    // Deterministic font-independent estimate. Renderer performs the final glyph drawing.
+    // Layout intentionally errs slightly high so content is never clipped.
+    function charsPerLine(width, fontSize) {
+        return Math.max(8, Math.floor(width / Math.max(2.8, fontSize * 0.53)));
+    }
 
-        if (explicitHeight !== null) {
-            return explicitHeight;
+    function lineCount(text, width, fontSize) {
+        const s = cleanText(text);
+        if (!s) return 0;
+        const cap = charsPerLine(width, fontSize);
+        const words = s.split(' ');
+        let lines = 1, used = 0;
+        for (const word of words) {
+            const n = word.length + (used ? 1 : 0);
+            if (used && used + n > cap) {
+                lines += Math.max(1, Math.ceil(word.length / cap));
+                used = Math.min(word.length, cap);
+            } else if (!used && word.length > cap) {
+                lines += Math.ceil(word.length / cap) - 1;
+                used = word.length % cap;
+            } else {
+                used += n;
+            }
         }
+        return lines;
+    }
 
-        const {
-            pageConfig,
-            densityTokens
-        } = context;
+    function blockChrome(mode) {
+        return mode.padY * 2 + mode.blockTitleLine + mode.lineGap;
+    }
 
-        switch (block.id) {
-            case 'header':
-                return pageConfig.headerHeight;
+    function measureList(block, width, mode) {
+        const items = arrayOf(block);
+        const inner = Math.max(40, width - mode.padX * 2 - 18);
+        let h = blockChrome(mode);
+        for (const item of items) {
+            const title = cleanText(item?.title || item?.label || '');
+            const body = cleanText(item?.description || item?.text || item?.value || textOf(item));
+            const titleLines = title ? lineCount(title, inner, mode.body) : 0;
+            const bodyLines = body && body !== title ? lineCount(body, inner, mode.small) : 0;
+            h += Math.max(mode.bodyLine, titleLines * mode.bodyLine + bodyLines * mode.smallLine);
+            h += mode.lineGap;
+        }
+        return Math.max(32, h);
+    }
 
-            case 'stats':
-                return pageConfig.statsHeight;
+    function measureSummary(block, width, mode) {
+        const c = block?.content ?? block?.data ?? block?.value ?? '';
+        let paragraphs = [];
+        if (Array.isArray(c)) paragraphs = c.map(textOf).filter(Boolean);
+        else if (typeof c === 'object') {
+            const raw = c.paragraphs || c.items;
+            paragraphs = Array.isArray(raw) ? raw.map(textOf).filter(Boolean) : [textOf(c)].filter(Boolean);
+        } else paragraphs = [cleanText(c)].filter(Boolean);
 
-            case 'footer':
-                return pageConfig.footerHeight;
+        const inner = Math.max(50, width - mode.padX * 2);
+        let lines = 0;
+        for (const p of paragraphs) lines += lineCount(p, inner, mode.body);
+        return Math.max(42, blockChrome(mode) + lines * mode.bodyLine + Math.max(0, paragraphs.length - 1) * mode.lineGap);
+    }
 
-            case 'summary':
-                return Math.max(
-                    DEFAULT_BLOCK_MIN_HEIGHT.summary,
-                    estimateSummaryHeight(
-                        block,
-                        width,
-                        densityTokens
-                    )
-                );
+    function measureMetrics(block, width, mode) {
+        const items = arrayOf(block);
+        if (!items.length) return 0;
+        const columns = width >= 300 ? 4 : width >= 200 ? 3 : 2;
+        const rows = Math.ceil(items.length / columns);
+        const cellW = (width - (columns - 1) * mode.cardGap) / columns;
+        let total = 0;
+        for (let r = 0; r < rows; r++) {
+            let rowH = 0;
+            for (let c = 0; c < columns; c++) {
+                const item = items[r * columns + c];
+                if (!item) continue;
+                const label = cleanText(item.label || item.title || item.name);
+                const value = cleanText(item.value || item.primaryValue || item.metric);
+                const h = mode.padY * 2
+                    + Math.max(mode.bodyLine * 1.6, lineCount(value, cellW - mode.padX * 2, mode.body * 1.45) * mode.bodyLine)
+                    + lineCount(label, cellW - mode.padX * 2, mode.small) * mode.smallLine;
+                rowH = Math.max(rowH, h);
+            }
+            total += rowH + (r ? mode.cardGap : 0);
+        }
+        return Math.max(36, blockChrome(mode) + total);
+    }
 
-            case 'metrics':
-                return Math.max(
-                    DEFAULT_BLOCK_MIN_HEIGHT.metrics,
-                    estimateMetricsHeight(
-                        block,
-                        width,
-                        densityTokens,
-                        pageConfig
-                    )
-                );
+    function measureTasks(block, width, mode) {
+        const items = arrayOf(block);
+        const taskW = Math.max(80, width * 0.58);
+        let h = blockChrome(mode) + 14; // table header
+        for (const item of items) {
+            const task = cleanText(item.task || item.title || item.description || item.text);
+            const owner = cleanText(item.owner?.name || item.owner || '');
+            const due = cleanText(item.dueDate || item.due_date || item.deadline || '');
+            const lines = Math.max(
+                1,
+                lineCount(task, taskW, mode.taskBody),
+                lineCount(owner, width * 0.22, mode.taskBody),
+                lineCount(due, width * 0.16, mode.taskBody)
+            );
+            h += Math.max(13, lines * mode.taskLine + mode.padY);
+        }
+        return Math.max(42, h);
+    }
 
-            case 'tasks':
-                return Math.max(
-                    DEFAULT_BLOCK_MIN_HEIGHT.tasks,
-                    estimateTasksHeight(
-                        block,
-                        densityTokens
-                    )
-                );
+    function measureArchitecture(block, width, mode) {
+        const sections = arrayOf(block);
+        if (!sections.length) return 0;
+        const cols = Math.min(4, Math.max(1, sections.length));
+        const colW = (width - (cols - 1) * mode.cardGap) / cols;
+        let max = 0;
+        for (const section of sections) {
+            const title = cleanText(section.title || section.name || section.label);
+            const items = Array.isArray(section.items) ? section.items : [];
+            let h = mode.padY * 2 + lineCount(title, colW - mode.padX * 2, mode.body) * mode.bodyLine + mode.lineGap;
+            for (const item of items) {
+                const it = cleanText(item.title || item.name || item.label);
+                const desc = cleanText(item.description || item.text || '');
+                h += Math.max(mode.bodyLine, lineCount(it, colW - mode.padX * 2, mode.small) * mode.smallLine);
+                if (desc) h += lineCount(desc, colW - mode.padX * 2, mode.small) * mode.smallLine;
+                h += mode.lineGap;
+            }
+            max = Math.max(max, h);
+        }
+        return Math.max(42, blockChrome(mode) + max);
+    }
 
-            case 'architecture':
-                return Math.max(
-                    DEFAULT_BLOCK_MIN_HEIGHT.architecture,
-                    estimateArchitectureHeight(
-                        block,
-                        width,
-                        densityTokens,
-                        pageConfig
-                    )
-                );
+    function measureOwners(block, width, mode) {
+        const items = arrayOf(block);
+        if (!items.length) return 0;
+        const perRow = Math.max(1, Math.floor(width / 110));
+        const rows = Math.ceil(items.length / perRow);
+        return blockChrome(mode) + rows * (mode === MODES.dense ? 22 : 26) + Math.max(0, rows - 1) * mode.cardGap;
+    }
 
+    function measure(block, width, mode) {
+        const id = idOf(block);
+        switch (id) {
+            case 'header': return 36;
+            case 'meetingStats': return 25;
+            case 'executiveSummary': return measureSummary(block, width, mode);
+            case 'keyMetrics': return measureMetrics(block, width, mode);
             case 'insights':
             case 'decisions':
-            case 'risks':
-            case 'owners':
-                return Math.max(
-                    DEFAULT_BLOCK_MIN_HEIGHT[block.id],
-                    estimateListHeight(
-                        block,
-                        width,
-                        densityTokens
-                    )
-                );
-
-            default:
-                throw new LayoutError(
-                    'UNSUPPORTED_BLOCK',
-                    `No height estimator for block "${block.id}".`
-                );
+            case 'risks': return measureList(block, width, mode);
+            case 'tasks': return measureTasks(block, width, mode);
+            case 'architecture': return measureArchitecture(block, width, mode);
+            case 'owners': return measureOwners(block, width, mode);
+            case 'footer': return 17;
+            default: return measureList(block, width, mode);
         }
     }
 
-    function createPageRegions(pageConfig, hasStats) {
-        const contentLeft = pageConfig.margin.left;
-        const contentRight =
-            pageConfig.width - pageConfig.margin.right;
-        const contentWidth =
-            contentRight - contentLeft;
-
-        const header = {
-            id: 'header',
-            x: contentLeft,
-            y: pageConfig.margin.top,
-            width: contentWidth,
-            height: pageConfig.headerHeight
-        };
-
-        const stats = hasStats
-            ? {
-                id: 'stats',
-                x: contentLeft,
-                y: header.y + header.height,
-                width: contentWidth,
-                height: pageConfig.statsHeight
-            }
-            : null;
-
-        const footer = {
-            id: 'footer',
-            x: contentLeft,
-            y:
-                pageConfig.height -
-                pageConfig.margin.bottom -
-                pageConfig.footerHeight,
-            width: contentWidth,
-            height: pageConfig.footerHeight
-        };
-
-        const bodyTop = stats
-            ? stats.y + stats.height + pageConfig.sectionGap
-            : header.y + header.height + pageConfig.sectionGap;
-
-        const bodyBottom =
-            footer.y - pageConfig.sectionGap;
-
-        const bodyHeight =
-            bodyBottom - bodyTop;
-
-        if (bodyHeight <= 0) {
-            throw new LayoutError(
-                'INVALID_PAGE_GEOMETRY',
-                'Page service regions leave no positive body height.',
-                {
-                    pageConfig,
-                    bodyTop,
-                    bodyBottom
-                }
-            );
+    function getBlocks(composition) {
+        if (Array.isArray(composition?.blocks)) return composition.blocks;
+        if (Array.isArray(composition?.pages)) {
+            return composition.pages.flatMap(p => Array.isArray(p.blocks) ? p.blocks : []);
         }
-
-        return {
-            header,
-            stats,
-            body: {
-                id: 'body',
-                x: contentLeft,
-                y: bodyTop,
-                width: contentWidth,
-                height: bodyHeight
-            },
-            footer
-        };
+        return [];
     }
 
-    function makeLayout(
-        pageNumber,
-        region,
-        column,
-        order,
-        role,
-        fits,
-        geometry
-    ) {
-        return {
-            pageNumber,
-            region,
-            column: column || null,
-            order,
-            role,
-            fits,
-            geometry: clone(geometry)
-        };
-    }
-
-    function enrichBlock(
-        block,
-        pageNumber,
-        region,
-        column,
-        order,
-        role,
-        fits,
-        geometry
-    ) {
-        return {
-            ...block,
-            layout: makeLayout(
-                pageNumber,
-                region,
-                column,
-                order,
-                role,
-                fits,
-                geometry
-            )
-        };
-    }
-
-    function appendServiceBlocks(blocks, regions, pageNumber) {
-        const result = [];
-
+    function byId(blocks) {
+        const map = new Map();
         for (const block of blocks) {
-            if (!SERVICE_IDS.has(block.id)) {
-                continue;
-            }
-
-            const geometry =
-                block.id === 'header'
-                    ? regions.header
-                    : block.id === 'stats'
-                        ? regions.stats
-                        : regions.footer;
-
-            if (!geometry) {
-                continue;
-            }
-
-            result.push(
-                enrichBlock(
-                    block,
-                    pageNumber,
-                    block.id,
-                    null,
-                    block.sourceIndex,
-                    'service',
-                    true,
-                    geometry
-                )
-            );
+            const id = idOf(block);
+            if (id && !map.has(id)) map.set(id, block);
         }
-
-        return result;
+        return map;
     }
 
-    function layoutVerticalFlow(blocks, region, context) {
-        const positioned = [];
-        const overflow = [];
-        let cursorY = region.y;
-
-        blocks.forEach((block, index) => {
-            const width = region.width;
-            const height = estimateBlockHeight(
-                block,
-                width,
-                context
-            );
-
-            const remainingHeight =
-                region.y + region.height - cursorY;
-
-            const geometry = {
-                x: region.x,
-                y: cursorY,
-                width,
-                height
-            };
-
-            const fits =
-                height <= remainingHeight + 0.001;
-
-            const role = EXECUTIVE_IDS.has(block.id)
-                ? 'executive'
-                : 'supporting';
-
-            const enriched = enrichBlock(
-                block,
-                context.pageNumber,
-                'body',
-                null,
-                index,
-                role,
-                fits,
-                geometry
-            );
-
-            if (fits) {
-                positioned.push(enriched);
-                cursorY +=
-                    height + context.pageConfig.rowGap;
-            } else {
-                overflow.push({
-                    ...enriched,
-                    overflowBy: Math.max(
-                        0,
-                        height - remainingHeight
-                    )
-                });
-            }
+    function cloneWithGeometry(block, geometry, meta = {}) {
+        return Object.assign({}, block, {
+            geometry: Object.freeze({
+                x: geometry.x, y: geometry.y,
+                width: geometry.width, height: geometry.height
+            }),
+            layout: Object.freeze(meta)
         });
+    }
 
-        const usedHeight = positioned.length
-            ? Math.max(
-                0,
-                cursorY -
-                context.pageConfig.rowGap -
-                region.y
-            )
-            : 0;
+    function buildPage(blocks, modeName) {
+        const mode = MODES[modeName];
+        const map = byId(blocks);
+        const x = mode.marginX;
+        const contentW = PAGE.width - mode.marginX * 2;
+        const pageBlocks = [];
+        let y = mode.marginTop;
 
+        const placeFull = (id, forcedH = null) => {
+            const b = map.get(id);
+            if (!b) return 0;
+            const h = forcedH ?? measure(b, contentW, mode);
+            pageBlocks.push(cloneWithGeometry(b, { x, y, width: contentW, height: h }, { density: modeName }));
+            y += h + mode.sectionGap;
+            return h;
+        };
+
+        placeFull('header', 36);
+        placeFull('meetingStats', 25);
+
+        // Golden row 1: Summary | Metrics. Width ratio is a visual token, height remains content-driven.
+        const summary = map.get('executiveSummary');
+        const metrics = map.get('keyMetrics');
+        if (summary && metrics) {
+            const gap = mode.columnGap;
+            const leftW = (contentW - gap) * 0.435;
+            const rightW = contentW - gap - leftW;
+            const h1 = measure(summary, leftW, mode);
+            const h2 = measure(metrics, rightW, mode);
+            const rowH = Math.max(h1, h2);
+            pageBlocks.push(cloneWithGeometry(summary, { x, y, width: leftW, height: rowH }, { density: modeName, naturalHeight: h1 }));
+            pageBlocks.push(cloneWithGeometry(metrics, { x: x + leftW + gap, y, width: rightW, height: rowH }, { density: modeName, naturalHeight: h2 }));
+            y += rowH + mode.sectionGap;
+        } else {
+            if (summary) placeFull('executiveSummary');
+            if (metrics) placeFull('keyMetrics');
+        }
+
+        // Golden row 2: Insights | Decisions | Risks. Equal visual columns; row height is max natural content height.
+        const trio = ['insights','decisions','risks'].filter(id => map.has(id));
+        if (trio.length) {
+            const gap = mode.columnGap;
+            const colW = (contentW - gap * (trio.length - 1)) / trio.length;
+            const hs = trio.map(id => measure(map.get(id), colW, mode));
+            const rowH = Math.max(...hs);
+            trio.forEach((id, i) => {
+                pageBlocks.push(cloneWithGeometry(
+                    map.get(id),
+                    { x: x + i * (colW + gap), y, width: colW, height: rowH },
+                    { density: modeName, naturalHeight: hs[i] }
+                ));
+            });
+            y += rowH + mode.sectionGap;
+        }
+
+        // Golden row 3: Tasks | Architecture, 39/61.
+        const tasks = map.get('tasks');
+        const architecture = map.get('architecture');
+        if (tasks && architecture) {
+            const gap = mode.columnGap;
+            const leftW = (contentW - gap) * 0.39;
+            const rightW = contentW - gap - leftW;
+            const h1 = measure(tasks, leftW, mode);
+            const h2 = measure(architecture, rightW, mode);
+            const rowH = Math.max(h1, h2);
+            pageBlocks.push(cloneWithGeometry(tasks, { x, y, width: leftW, height: rowH }, { density: modeName, naturalHeight: h1 }));
+            pageBlocks.push(cloneWithGeometry(architecture, { x: x + leftW + gap, y, width: rightW, height: rowH }, { density: modeName, naturalHeight: h2 }));
+            y += rowH + mode.sectionGap;
+        } else {
+            if (tasks) placeFull('tasks');
+            if (architecture) placeFull('architecture');
+        }
+
+        placeFull('owners');
+        // Footer belongs at the bottom if everything fits; otherwise its natural position is preserved for pagination.
+        const footer = map.get('footer');
+        if (footer) {
+            const h = 17;
+            const bottomY = PAGE.height - mode.marginBottom - h;
+            const fy = Math.max(y, bottomY);
+            pageBlocks.push(cloneWithGeometry(footer, { x, y: fy, width: contentW, height: h }, { density: modeName }));
+            y = fy + h;
+        }
+
+        const usedHeight = y + mode.marginBottom;
         return {
-            positioned,
-            overflow,
+            mode: modeName,
+            blocks: pageBlocks,
             usedHeight,
-            availableHeight: region.height,
-            columns: null
+            fits: usedHeight <= PAGE.height + 0.01
         };
     }
 
-    function createColumnRegions(bodyRegion, pageConfig, templateConfig) {
-        const gap = pageConfig.columnGap;
-        const totalWidth = bodyRegion.width - gap;
-        const dominantRatio =
-            templateConfig.dominantRatio || 1;
+    function paginateSequential(blocks, modeName) {
+        const mode = MODES[modeName];
+        const contentW = PAGE.width - mode.marginX * 2;
+        const maxY = PAGE.height - mode.marginBottom;
+        const pages = [];
+        let current = [], y = mode.marginTop;
 
-        const leftWidth = templateConfig.dominantBlock
-            ? totalWidth *
-                dominantRatio /
-                (1 + dominantRatio)
-            : totalWidth / 2;
-
-        const rightWidth =
-            totalWidth - leftWidth;
-
-        return {
-            left: {
-                id: 'body-left',
-                x: bodyRegion.x,
-                y: bodyRegion.y,
-                width: leftWidth,
-                height: bodyRegion.height
-            },
-            right: {
-                id: 'body-right',
-                x:
-                    bodyRegion.x +
-                    leftWidth +
-                    gap,
-                y: bodyRegion.y,
-                width: rightWidth,
-                height: bodyRegion.height
-            }
+        const pushPage = () => {
+            if (!current.length) return;
+            pages.push({
+                id: `page-${pages.length + 1}`,
+                number: pages.length + 1,
+                index: pages.length,
+                size: PAGE,
+                blocks: current
+            });
+            current = [];
+            y = mode.marginTop;
         };
-    }
-
-    function measureColumnHeight(blocks, width, context) {
-        if (blocks.length === 0) {
-            return 0;
-        }
-
-        return blocks.reduce((total, block) => {
-            return total +
-                estimateBlockHeight(
-                    block,
-                    width,
-                    context
-                ) +
-                context.pageConfig.rowGap;
-        }, 0) - context.pageConfig.rowGap;
-    }
-
-    function splitBalanced(blocks, leftWidth, rightWidth, context) {
-        const left = [];
-        const right = [];
-        let leftHeight = 0;
-        let rightHeight = 0;
 
         for (const block of blocks) {
-            const leftEstimate = estimateBlockHeight(
-                block,
-                leftWidth,
-                context
-            );
+            const h = measure(block, contentW, mode);
+            if (current.length && y + h > maxY) pushPage();
+            current.push(cloneWithGeometry(block, {
+                x: mode.marginX, y,
+                width: contentW,
+                height: Math.min(h, maxY - mode.marginTop)
+            }, { density: modeName, paginated: true, naturalHeight: h }));
+            y += h + mode.sectionGap;
+        }
+        pushPage();
+        return pages;
+    }
 
-            const rightEstimate = estimateBlockHeight(
-                block,
-                rightWidth,
-                context
-            );
-
-            if (leftHeight <= rightHeight) {
-                left.push(block);
-                leftHeight +=
-                    leftEstimate +
-                    context.pageConfig.rowGap;
-            } else {
-                right.push(block);
-                rightHeight +=
-                    rightEstimate +
-                    context.pageConfig.rowGap;
+    function validate(pages) {
+        const diagnostics = [];
+        for (const page of pages) {
+            for (const block of page.blocks) {
+                const g = block.geometry;
+                if (!g || g.width <= 0 || g.height <= 0) {
+                    diagnostics.push({ level: 'error', code: 'INVALID_GEOMETRY', blockId: idOf(block) });
+                }
+                if (g && (g.x < 0 || g.y < 0 || g.x + g.width > PAGE.width + .1 || g.y + g.height > PAGE.height + .1)) {
+                    diagnostics.push({ level: 'warning', code: 'OUTSIDE_PAGE', blockId: idOf(block), geometry: g });
+                }
             }
         }
-
-        return {
-            left,
-            right,
-            leftHeight,
-            rightHeight
-        };
+        return diagnostics;
     }
 
-    function splitDominant(blocks, columns, context, dominantBlockId) {
-        const dominant = blocks.filter(
-            block => block.id === dominantBlockId
-        );
+    function layout(composition, options = {}) {
+        const blocks = getBlocks(composition)
+            .filter(Boolean)
+            .sort((a, b) => {
+                const ai = ORDER.indexOf(idOf(a)), bi = ORDER.indexOf(idOf(b));
+                return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+            });
 
-        const rest = blocks.filter(
-            block => block.id !== dominantBlockId
-        );
-
-        if (dominant.length === 0) {
-            return splitBalanced(
-                blocks,
-                columns.left.width,
-                columns.right.width,
-                context
-            );
+        if (!blocks.length) {
+            return Object.freeze({
+                pageCount: 0, valid: true, density: 'regular',
+                pages: Object.freeze([]), diagnostics: Object.freeze([])
+            });
         }
 
-        const dominantHeight = measureColumnHeight(
-            dominant,
-            columns.left.width,
-            context
-        );
-
-        const rightHeight = measureColumnHeight(
-            rest,
-            columns.right.width,
-            context
-        );
-
-        return {
-            left: dominant,
-            right: rest,
-            leftHeight: dominantHeight,
-            rightHeight
-        };
-    }
-
-    function layoutColumn(blocks, region, context, columnId) {
-        const positioned = [];
-        const overflow = [];
-        let cursorY = region.y;
-
-        blocks.forEach((block, index) => {
-            const height = estimateBlockHeight(
-                block,
-                region.width,
-                context
-            );
-
-            const remainingHeight =
-                region.y + region.height - cursorY;
-
-            const fits =
-                height <= remainingHeight + 0.001;
-
-            const geometry = {
-                x: region.x,
-                y: cursorY,
-                width: region.width,
-                height
-            };
-
-            const role = EXECUTIVE_IDS.has(block.id)
-                ? 'executive'
-                : 'supporting';
-
-            const enriched = enrichBlock(
-                block,
-                context.pageNumber,
-                'body',
-                columnId,
-                index,
-                role,
-                fits,
-                geometry
-            );
-
-            if (fits) {
-                positioned.push(enriched);
-                cursorY +=
-                    height + context.pageConfig.rowGap;
-            } else {
-                overflow.push({
-                    ...enriched,
-                    overflowBy: Math.max(
-                        0,
-                        height - remainingHeight
-                    )
-                });
-            }
-        });
-
-        const usedHeight = positioned.length
-            ? Math.max(
-                0,
-                cursorY -
-                context.pageConfig.rowGap -
-                region.y
-            )
-            : 0;
-
-        return {
-            positioned,
-            overflow,
-            usedHeight
-        };
-    }
-
-    function layoutTwoColumns(blocks, bodyRegion, context, template) {
-        const columns = createColumnRegions(
-            bodyRegion,
-            context.pageConfig,
-            template.config
-        );
-
-        const split = template.config.dominantBlock
-            ? splitDominant(
-                blocks,
-                columns,
-                context,
-                template.config.dominantBlock
-            )
-            : splitBalanced(
-                blocks,
-                columns.left.width,
-                columns.right.width,
-                context
-            );
-
-        const left = layoutColumn(
-            split.left,
-            columns.left,
-            context,
-            'left'
-        );
-
-        const right = layoutColumn(
-            split.right,
-            columns.right,
-            context,
-            'right'
-        );
-
-        return {
-            positioned: [
-                ...left.positioned,
-                ...right.positioned
-            ],
-            overflow: [
-                ...left.overflow,
-                ...right.overflow
-            ],
-            usedHeight: Math.max(
-                left.usedHeight,
-                right.usedHeight
-            ),
-            availableHeight: bodyRegion.height,
-            columns
-        };
-    }
-
-    function findSideBySidePair(blocks) {
-        const tasks = blocks.find(
-            block => block.id === 'tasks'
-        );
-
-        const architecture = blocks.find(
-            block => block.id === 'architecture'
-        );
-
-        if (!tasks || !architecture) {
-            return null;
-        }
-
-        return {
-            tasks,
-            architecture
-        };
-    }
-
-    function measureSideBySidePair(pair, bodyRegion, context) {
-        const gap = context.pageConfig.columnGap;
-        const width =
-            (bodyRegion.width - gap) / 2;
-
-        const tasksHeight = estimateBlockHeight(
-            pair.tasks,
-            width,
-            context
-        );
-
-        const architectureHeight = estimateBlockHeight(
-            pair.architecture,
-            width,
-            context
-        );
-
-        return {
-            width,
-            height: Math.max(
-                tasksHeight,
-                architectureHeight
-            ),
-            tasksHeight,
-            architectureHeight
-        };
-    }
-
-    function shouldUseSideBySide(pair, bodyRegion, context) {
-        if (!pair) {
-            return false;
-        }
-
-        const measurement = measureSideBySidePair(
-            pair,
-            bodyRegion,
-            context
-        );
-
-        return measurement.height <=
-            bodyRegion.height * 0.58;
-    }
-
-    function layoutSideBySidePair(
-        pair,
-        region,
-        context,
-        orderOffset
-    ) {
-        const gap = context.pageConfig.columnGap;
-        const width =
-            (region.width - gap) / 2;
-
-        const tasksHeight = estimateBlockHeight(
-            pair.tasks,
-            width,
-            context
-        );
-
-        const architectureHeight = estimateBlockHeight(
-            pair.architecture,
-            width,
-            context
-        );
-
-        const sharedHeight = Math.max(
-            tasksHeight,
-            architectureHeight
-        );
-
-        const fits =
-            sharedHeight <= region.height + 0.001;
-
-        const tasksGeometry = {
-            x: region.x,
-            y: region.y,
-            width,
-            height: sharedHeight
-        };
-
-        const architectureGeometry = {
-            x: region.x + width + gap,
-            y: region.y,
-            width,
-            height: sharedHeight
-        };
-
-        const blocks = [
-            enrichBlock(
-                pair.tasks,
-                context.pageNumber,
-                'body',
-                'left',
-                orderOffset,
-                'supporting',
-                fits,
-                tasksGeometry
-            ),
-            enrichBlock(
-                pair.architecture,
-                context.pageNumber,
-                'body',
-                'right',
-                orderOffset + 1,
-                'supporting',
-                fits,
-                architectureGeometry
-            )
-        ];
-
-        return {
-            positioned: fits ? blocks : [],
-            overflow: fits
-                ? []
-                : blocks.map(block => ({
-                    ...block,
-                    overflowBy:
-                        sharedHeight - region.height
-                })),
-            usedHeight: fits ? sharedHeight : 0,
-            availableHeight: region.height
-        };
-    }
-
-    function layoutAdaptive(blocks, regions, context, template) {
-        const pair = findSideBySidePair(blocks);
-
-        if (shouldUseSideBySide(pair, regions.body, context)) {
-            const pairIds = new Set([
-                'tasks',
-                'architecture'
-            ]);
-
-            const upperBlocks = blocks.filter(
-                block => !pairIds.has(block.id)
-            );
-
-            const pairMeasurement = measureSideBySidePair(
-                pair,
-                regions.body,
-                context
-            );
-
-            const upperHeight = Math.max(
-                0,
-                regions.body.height -
-                context.pageConfig.rowGap -
-                pairMeasurement.height
-            );
-
-            const upperRegion = {
-                ...regions.body,
-                height: upperHeight
-            };
-
-            const upper = template.config.columns === 2
-                ? layoutTwoColumns(
-                    upperBlocks,
-                    upperRegion,
-                    context,
-                    template
-                )
-                : layoutVerticalFlow(
-                    upperBlocks,
-                    upperRegion,
-                    context
-                );
-
-            if (upper.overflow.length === 0) {
-                const pairTop =
-                    regions.body.y +
-                    upper.usedHeight +
-                    context.pageConfig.rowGap;
-
-                const pairRegion = {
-                    ...regions.body,
-                    y: pairTop,
-                    height: Math.max(
-                        0,
-                        regions.body.y +
-                        regions.body.height -
-                        pairTop
-                    )
-                };
-
-                const sideBySide = layoutSideBySidePair(
-                    pair,
-                    pairRegion,
-                    context,
-                    upper.positioned.length
-                );
-
-                return {
-                    positioned: [
-                        ...upper.positioned,
-                        ...sideBySide.positioned
-                    ],
-                    overflow: [
-                        ...upper.overflow,
-                        ...sideBySide.overflow
-                    ],
-                    usedHeight:
-                        upper.usedHeight +
-                        context.pageConfig.rowGap +
-                        sideBySide.usedHeight,
-                    availableHeight: regions.body.height,
-                    columns: upper.columns || null
-                };
-            }
-        }
-
-        if (template.config.columns === 2) {
-            return layoutTwoColumns(
-                blocks,
-                regions.body,
-                context,
-                template
-            );
-        }
-
-        return layoutVerticalFlow(
-            blocks,
-            regions.body,
-            context
-        );
-    }
-
-    function nextDensity(current) {
-        const order = [
-            'regular',
-            'compact',
-            'dense',
-            'truncated'
-        ];
-
-        const index = order.indexOf(current);
-
-        return index >= 0 &&
-            index < order.length - 1
-            ? order[index + 1]
-            : null;
-    }
-
-    function layoutWithDensityFallback(
-        blocks,
-        regions,
-        baseContext,
-        template,
-        options
-    ) {
-        let context = baseContext;
-
-        let flow = layoutAdaptive(
-            blocks,
-            regions,
-            context,
-            template
-        );
-
-        const attempted = [context.density];
-
-        while (
-            flow.overflow.length > 0 &&
-            options?.enableDensityFallback !== false
-        ) {
-            const next = nextDensity(context.density);
-
-            if (!next) {
+        let selected = null;
+        const attempts = [];
+        for (const modeName of ['regular','compact','dense']) {
+            const attempt = buildPage(blocks, modeName);
+            attempts.push({ density: modeName, usedHeight: attempt.usedHeight, fits: attempt.fits });
+            if (attempt.fits) {
+                selected = attempt;
                 break;
             }
-
-            context = {
-                ...context,
-                density: next,
-                densityTokens: resolveDensityTokens(
-                    next,
-                    options
-                )
-            };
-
-            attempted.push(next);
-
-            flow = layoutAdaptive(
-                blocks,
-                regions,
-                context,
-                template
-            );
         }
 
-        return {
-            ...flow,
-            density: context.density,
-            densityTokens: context.densityTokens,
-            densityFallback: {
-                applied: attempted.length > 1,
-                attempted
-            }
-        };
+        let pages;
+        let density;
+        if (selected) {
+            density = selected.mode;
+            pages = [{
+                id: 'page-1', number: 1, index: 0,
+                kind: 'executive',
+                size: PAGE,
+                blocks: selected.blocks
+            }];
+        } else {
+            density = 'dense';
+            pages = paginateSequential(blocks, density);
+        }
+
+        const diagnostics = validate(pages);
+        return Object.freeze({
+            pageCount: pages.length,
+            valid: !diagnostics.some(d => d.level === 'error'),
+            density,
+            size: PAGE,
+            pages: Object.freeze(pages.map(p => Object.freeze(p))),
+            diagnostics: Object.freeze(diagnostics),
+            attempts: Object.freeze(attempts)
+        });
     }
 
-    function rectanglesIntersect(a, b) {
-        return (
-            a.x < b.x + b.width &&
-            a.x + a.width > b.x &&
-            a.y < b.y + b.height &&
-            a.y + a.height > b.y
-        );
-    }
-
-    function validateGeometry(pageResult) {
-        const errors = [];
-        const warnings = [];
-        const {
-            width,
-            height
-        } = pageResult.size;
-
-        for (const block of pageResult.blocks) {
-            const geometry =
-                block.layout?.geometry;
-
-            if (
-                !geometry ||
-                ![
-                    geometry.x,
-                    geometry.y,
-                    geometry.width,
-                    geometry.height
-                ].every(Number.isFinite)
-            ) {
-                errors.push({
-                    code: 'INVALID_GEOMETRY',
-                    blockId: block.id
-                });
-                continue;
-            }
-
-            if (
-                geometry.width <= 0 ||
-                geometry.height <= 0
-            ) {
-                errors.push({
-                    code: 'NON_POSITIVE_GEOMETRY',
-                    blockId: block.id,
-                    geometry
-                });
-            }
-
-            if (
-                geometry.x < 0 ||
-                geometry.y < 0 ||
-                geometry.x + geometry.width > width + 0.001 ||
-                geometry.y + geometry.height > height + 0.001
-            ) {
-                errors.push({
-                    code: 'OUT_OF_PAGE',
-                    blockId: block.id,
-                    geometry
-                });
-            }
-        }
-
-        const bodyBlocks = pageResult.blocks.filter(
-            block => block.layout?.region === 'body'
-        );
-
-        for (
-            let first = 0;
-            first < bodyBlocks.length;
-            first += 1
-        ) {
-            for (
-                let second = first + 1;
-                second < bodyBlocks.length;
-                second += 1
-            ) {
-                const a = bodyBlocks[first];
-                const b = bodyBlocks[second];
-
-                if (
-                    rectanglesIntersect(
-                        a.layout.geometry,
-                        b.layout.geometry
-                    )
-                ) {
-                    errors.push({
-                        code: 'BLOCK_INTERSECTION',
-                        blockIds: [
-                            a.id,
-                            b.id
-                        ]
-                    });
-                }
-            }
-        }
-
-        if (pageResult.overflow.length > 0) {
-            warnings.push({
-                code: 'PAGE_OVERFLOW',
-                blockIds: pageResult.overflow.map(
-                    block => block.id
-                )
-            });
-        }
-
-        return {
-            valid: errors.length === 0,
-            errors,
-            warnings
-        };
-    }
-
-    function assertUniqueBlockIds(blocks, pageIndex) {
-        const seen = new Set();
-
-        for (const block of blocks) {
-            if (seen.has(block.id)) {
-                throw new LayoutError(
-                    'DUPLICATE_BLOCK_ID',
-                    `Page ${pageIndex + 1} contains duplicate block "${block.id}".`,
-                    {
-                        pageIndex,
-                        blockId: block.id
-                    }
-                );
-            }
-
-            seen.add(block.id);
-        }
-    }
-
-    function layoutPage(
-        rawPage,
-        pageIndex,
-        pageCount,
-        composition,
-        options
-    ) {
-        const page = assertCompositionPage(
-            rawPage,
-            pageIndex
-        );
-
-        const blocks = page.blocks.map(
-            (block, blockIndex) =>
-                assertCompositionBlock(
-                    block,
-                    blockIndex,
-                    pageIndex
-                )
-        );
-
-        assertUniqueBlockIds(blocks, pageIndex);
-
-        const pageConfig = normalizePageConfig(options);
-
-        const hasStats = blocks.some(
-            block => block.id === 'stats'
-        );
-
-        const regions = createPageRegions(
-            pageConfig,
-            hasStats
-        );
-
-        const requestedDensity = resolveDensity(
-            page,
-            composition,
-            options
-        );
-
-        const densityTokens = resolveDensityTokens(
-            requestedDensity,
-            options
-        );
-
-        const template = resolveTemplate(page);
-
-        const context = {
-            pageConfig,
-            density: requestedDensity,
-            densityTokens,
-            pageNumber: page.number || pageIndex + 1,
-            pageCount
-        };
-
-        const bodyBlocks = blocks.filter(
-            block => !SERVICE_IDS.has(block.id)
-        );
-
-        const flow = layoutWithDensityFallback(
-            bodyBlocks,
-            regions,
-            context,
-            template,
-            options
-        );
-
-        const serviceBlocks = appendServiceBlocks(
-            blocks,
-            regions,
-            context.pageNumber
-        );
-
-        const laidOutBlocks = [
-            ...serviceBlocks,
-            ...flow.positioned
-        ].sort(
-            (a, b) =>
-                a.sourceIndex - b.sourceIndex
-        );
-
-        const result = {
-            id: page.id || `page-${pageIndex + 1}`,
-            number: context.pageNumber,
-            index: pageIndex,
-            pageCount,
-            continuation: Boolean(
-                page.continuation ||
-                pageIndex > 0
-            ),
-            requestedDensity,
-            density: flow.density,
-            template,
-            size: {
-                width: pageConfig.width,
-                height: pageConfig.height
-            },
-            regions: flow.columns
-                ? {
-                    ...regions,
-                    columns: flow.columns
-                }
-                : regions,
-            blocks: laidOutBlocks,
-            overflow: flow.overflow,
-            metrics: {
-                bodyUsedHeight: flow.usedHeight,
-                bodyAvailableHeight: flow.availableHeight,
-                bodyUtilization:
-                    flow.availableHeight > 0
-                        ? flow.usedHeight /
-                            flow.availableHeight
-                        : 0,
-                placedBlocks: flow.positioned.length,
-                serviceBlocks: serviceBlocks.length,
-                overflowBlocks: flow.overflow.length,
-                densityFallback:
-                    flow.densityFallback
-            }
-        };
-
-        result.validation =
-            validateGeometry(result);
-
-        return result;
-    }
-
-    function layout(compositionResult, options) {
-        const safeOptions = isPlainObject(options)
-            ? options
-            : {};
-
-        const pages = extractCompositionPages(
-            compositionResult
-        );
-
-        const layoutPages = pages.map(
-            (page, index) =>
-                layoutPage(
-                    page,
-                    index,
-                    pages.length,
-                    compositionResult,
-                    safeOptions
-                )
-        );
-
-        const errors = layoutPages.flatMap(
-            page =>
-                page.validation.errors.map(
-                    error => ({
-                        page: page.number,
-                        ...error
-                    })
-                )
-        );
-
-        const warnings = layoutPages.flatMap(
-            page =>
-                page.validation.warnings.map(
-                    warning => ({
-                        page: page.number,
-                        ...warning
-                    })
-                )
-        );
-
-        const deferredTemplates = layoutPages
-            .filter(page => page.template.deferred)
-            .map(page => ({
-                page: page.number,
-                requested: page.template.requested,
-                applied: page.template.applied
-            }));
-
-        if (deferredTemplates.length > 0) {
-            warnings.push({
-                code: 'UNKNOWN_TEMPLATE_FALLBACK',
-                templates: deferredTemplates
-            });
-        }
-
-        const result = {
-            engine: {
-                name: ENGINE_NAME,
-                version: ENGINE_VERSION
-            },
-            pageCount: layoutPages.length,
-            pages: layoutPages,
-            valid: errors.length === 0,
-            diagnostics: {
-                errors,
-                warnings,
-                overflow: layoutPages.flatMap(
-                    page =>
-                        page.overflow.map(
-                            block => ({
-                                page: page.number,
-                                blockId: block.id,
-                                overflowBy:
-                                    block.overflowBy
-                            })
-                        )
-                )
-            }
-        };
-
-        if (
-            safeOptions.throwOnValidationError &&
-            !result.valid
-        ) {
-            throw new LayoutError(
-                'LAYOUT_VALIDATION_FAILED',
-                'LayoutResult contains validation errors.',
-                result.diagnostics
-            );
-        }
-
-        return result;
-    }
-
-    const publicApi = Object.freeze({
-        name: ENGINE_NAME,
-        version: ENGINE_VERSION,
-        layout,
-        LayoutError,
-        defaults: Object.freeze({
-            page: DEFAULT_PAGE,
-            density: DEFAULT_DENSITY,
-            minimumBlockHeight:
-                DEFAULT_BLOCK_MIN_HEIGHT
-        }),
-        contracts: Object.freeze({
-            blockIds: BLOCK_IDS.slice(),
-            templates: Object.keys(TEMPLATE_CONFIG)
-        })
+    global.MeetMindLayoutEngine = Object.freeze({
+        version: 'golden-1.0.0',
+        PAGE,
+        MODES,
+        layout
     });
 
-    globalScope[ENGINE_NAME] = publicApi;
-
-    if (
-        typeof module !== 'undefined' &&
-        module.exports
-    ) {
-        module.exports = publicApi;
-    }
-})(
-    typeof globalThis !== 'undefined'
-        ? globalThis
-        : typeof window !== 'undefined'
-            ? window
-            : this
-);
+})(window);
