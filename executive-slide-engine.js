@@ -14,7 +14,7 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.0.0-golden';
+    const ENGINE_VERSION = '1.2.0-golden-visual-6B';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
     const CACHE_VERSION = 'golden-1.0.0';
 
