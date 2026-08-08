@@ -1,7 +1,7 @@
 /**
  * drawing-surface.js
  * MeetMind Executive PDF Engine
- * Status: READY FOR GITHUB
+ * Status: READY FOR GITHUB — 6D compatible
  *
  * Low-level drawing backend.
  * Owns only PDF primitives.
