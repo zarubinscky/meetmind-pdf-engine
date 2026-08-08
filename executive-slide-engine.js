@@ -582,18 +582,18 @@ function wrapText(text, font, size, maxWidth) {
     'https://zarubinscky.github.io/meetmind-pdf-engine/fonts/';
 
 const [regularFontBytes, boldFontBytes] = await Promise.all([
-    fetch(FONT_BASE + 'NotoSans-Regular.ttf').then(r => {
+    fetch(FONT_BASE + 'Inter-Regular.ttf').then(r => {
         if (!r.ok) {
             throw new Error(
-                `Failed to load NotoSans-Regular.ttf: ${r.status}`
+                `Failed to load Inter-Regular.ttf: ${r.status}`
             );
         }
         return r.arrayBuffer();
     }),
-    fetch(FONT_BASE + 'NotoSans-Bold.ttf').then(r => {
+    fetch(FONT_BASE + 'Inter-Bold.ttf').then(r => {
         if (!r.ok) {
             throw new Error(
-                `Failed to load NotoSans-Bold.ttf: ${r.status}`
+                `Failed to load Inter-Bold.ttf: ${r.status}`
             );
         }
         return r.arrayBuffer();
