@@ -351,6 +351,96 @@
             ]
         },
 
+        flask: {
+            name: 'flask', viewBox: VIEW_BOX, nodes: [
+                ['path', { d: 'M9 3h6' }],
+                ['path', { d: 'M10 9V3h4v6l5 8.5A2 2 0 0 1 17.3 21H6.7A2 2 0 0 1 5 17.5Z' }],
+                ['path', { d: 'M7.5 15h9' }]
+            ]
+        },
+
+        'clipboard-check': {
+            name: 'clipboard-check', viewBox: VIEW_BOX, nodes: [
+                ['rect', { width: '8', height: '4', x: '8', y: '2', rx: '1', ry: '1' }],
+                ['path', { d: 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2' }],
+                ['path', { d: 'm9 14 2 2 4-4' }]
+            ]
+        },
+
+        sparkles: {
+            name: 'sparkles', viewBox: VIEW_BOX, nodes: [
+                ['path', { d: 'm12 3-1.6 4.4L6 9l4.4 1.6L12 15l1.6-4.4L18 9l-4.4-1.6Z' }],
+                ['path', { d: 'm19 15-.8 2.2L16 18l2.2.8L19 21l.8-2.2L22 18l-2.2-.8Z' }],
+                ['path', { d: 'm5 3-.8 2.2L2 6l2.2.8L5 9l.8-2.2L8 6l-2.2-.8Z' }]
+            ]
+        },
+
+        settings: {
+            name: 'settings', viewBox: VIEW_BOX, nodes: [
+                ['path', { d: 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z' }],
+                ['circle', { cx: '12', cy: '12', r: '3' }]
+            ]
+        },
+
+        'users-round': {
+            name: 'users-round', viewBox: VIEW_BOX, nodes: [
+                ['path', { d: 'M18 21a8 8 0 0 0-16 0' }],
+                ['circle', { cx: '10', cy: '8', r: '5' }],
+                ['path', { d: 'M22 20c0-3-1.5-5.5-4-7' }],
+                ['path', { d: 'M17 3a5 5 0 0 1 0 9' }]
+            ]
+        },
+
+        box: {
+            name: 'box', viewBox: VIEW_BOX, nodes: [
+                ['path', { d: 'm21 8-9 5-9-5 9-5 9 5Z' }],
+                ['path', { d: 'm3 8 9 5 9-5' }],
+                ['path', { d: 'M3 8v8l9 5 9-5V8' }],
+                ['path', { d: 'M12 13v8' }]
+            ]
+        },
+
+        'calendar-days': {
+            name: 'calendar-days', viewBox: VIEW_BOX, nodes: [
+                ['path', { d: 'M8 2v4' }], ['path', { d: 'M16 2v4' }],
+                ['rect', { width: '18', height: '18', x: '3', y: '4', rx: '2' }],
+                ['path', { d: 'M3 10h18' }],
+                ['path', { d: 'M8 14h.01' }], ['path', { d: 'M12 14h.01' }], ['path', { d: 'M16 14h.01' }],
+                ['path', { d: 'M8 18h.01' }], ['path', { d: 'M12 18h.01' }]
+            ]
+        },
+
+        'brain-circuit': {
+            name: 'brain-circuit', viewBox: VIEW_BOX, nodes: [
+                ['path', { d: 'M9 5a3 3 0 1 0-6 0c0 .7.2 1.3.6 1.8A4 4 0 0 0 5 14.5V17a3 3 0 0 0 6 0V5' }],
+                ['path', { d: 'M15 5a3 3 0 1 1 6 0c0 .7-.2 1.3-.6 1.8A4 4 0 0 1 19 14.5V17a3 3 0 0 1-6 0V5' }],
+                ['path', { d: 'M8 9h8' }], ['circle', { cx: '12', cy: '9', r: '1' }]
+            ]
+        },
+
+        database: {
+            name: 'database', viewBox: VIEW_BOX, nodes: [
+                ['ellipse', { cx: '12', cy: '5', rx: '9', ry: '3' }],
+                ['path', { d: 'M3 5v7c0 1.7 4 3 9 3s9-1.3 9-3V5' }],
+                ['path', { d: 'M3 12v7c0 1.7 4 3 9 3s9-1.3 9-3v-7' }]
+            ]
+        },
+
+        workflow: {
+            name: 'workflow', viewBox: VIEW_BOX, nodes: [
+                ['rect', { x: '3', y: '3', width: '6', height: '6', rx: '1' }],
+                ['rect', { x: '15', y: '15', width: '6', height: '6', rx: '1' }],
+                ['path', { d: 'M9 6h3a3 3 0 0 1 3 3v6' }],
+                ['path', { d: 'm12 12 3 3 3-3' }]
+            ]
+        },
+
+        puzzle: {
+            name: 'puzzle', viewBox: VIEW_BOX, nodes: [
+                ['path', { d: 'M19.4 13.5A4 4 0 0 0 22 10h-4V6a2 2 0 0 0-2-2h-4a4 4 0 1 0-8 0H2v6h4a4 4 0 1 1 0 8H2v4h6v-4a4 4 0 1 1 8 0v4h6v-6h-4a4 4 0 0 0 1.4-2.5Z' }]
+            ]
+        },
+
         'circle-question-mark': {
             name: 'circle-question-mark',
             viewBox: VIEW_BOX,
