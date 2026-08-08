@@ -109,6 +109,22 @@ export class RenderContext {
         });
       },
 
+      svgPath(path, options = {}) {
+        const size = Number(options.size || 24);
+        const scale = size / 24;
+        // pdf-lib SVG paths use a PDF-space origin. y therefore anchors the
+        // lower-left of the 24x24 icon box while callers use top coordinates.
+        return root.surface.drawSvgPath(path, {
+          x: Number(options.x || 0),
+          y: height - Number(options.y || 0) - size,
+          scale,
+          borderWidth: Number(options.borderWidth || 0.8),
+          borderColor: color(options.stroke || options.color),
+          color: options.fill ? color(options.fill) : undefined,
+          opacity: options.opacity
+        });
+      },
+
       image(key, bytes, options = {}) {
         const h = Number(options.height || 0);
         return root.surface.drawImage(key, bytes, {
