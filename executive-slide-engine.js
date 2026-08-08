@@ -1,59 +1,98 @@
-(function (global) {
+/**
+ * MeetMind Executive PDF Engine
+ * Browser Integration — Golden Implementation v1.0
+ *
+ * Public API:
+ *   window.ExecutiveSlideEngine.generate(report, options?) -> Promise<Blob>
+ *
+ * This file is intentionally thin:
+ * report_json -> Composition -> Layout -> Golden Renderer -> DrawingSurface -> PDF
+ *
+ * NO rendering logic, truncation, maxLines, or benchmark-specific geometry lives here.
+ */
+(function attachExecutiveSlideEngine(global) {
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '0.1.0-mvp';
-
-    const MODULE_PATHS = Object.freeze({
-        composition: './Composition_Engine/composition-engine.js',
-        layout: './Layout_Engine/layout-engine.js',
-        drawingSurface: './drawing/drawing-surface.js'
-    });
+    const ENGINE_VERSION = '1.0.0-golden';
+    const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
+    const CACHE_VERSION = 'golden-1.0.0';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
 
-    const PAGE_SIZE = Object.freeze([842, 595]);
+    const FONTKIT_CDN =
+        'https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js';
 
-    const BLOCK_TITLES = Object.freeze({
-        header: '',
-        stats: '',
-        summary: 'Executive Summary',
-        metrics: 'Key Metrics',
-        insights: 'Insights',
-        decisions: 'Decisions',
-        risks: 'Risks',
-        tasks: 'Tasks',
-        architecture: 'Architecture',
-        owners: 'Owners',
-        footer: ''
+    const PATHS = Object.freeze({
+        composition: 'Composition_Engine/composition-engine.js',
+        layout: 'Layout_Engine/layout-engine.js',
+        drawingSurface: 'drawing/drawing-surface.js',
+        renderContext: 'core/render-context.js',
+        designSystem: 'Renderer/design-system.js',
+        icons: 'Renderer/icons.js',
+        blockRenderers: 'Renderer/renderers/block-renderers.js',
+        renderer: 'Renderer/renderer.js'
+    });
+
+    const FONT_PATHS = Object.freeze({
+        regular: 'fonts/Inter-Regular.ttf',
+        medium: 'fonts/Inter-Medium.ttf',
+        semibold: 'fonts/Inter-SemiBold.ttf',
+        bold: 'fonts/Inter-Bold.ttf'
+    });
+
+    const CANONICAL_TO_RENDERER = Object.freeze({
+        header: 'header',
+        meetingStats: 'stats',
+        executiveSummary: 'summary',
+        keyMetrics: 'metrics',
+        insights: 'insights',
+        decisions: 'decisions',
+        risks: 'risks',
+        tasks: 'tasks',
+        architecture: 'architecture',
+        owners: 'owners',
+        footer: 'footer'
     });
 
     let dependenciesPromise = null;
+    const scriptPromises = new Map();
 
-    function resolveUrl(relativePath) {
-        const currentScript = document.currentScript;
+    function withVersion(url) {
+        const separator = url.includes('?') ? '&' : '?';
+        return `${url}${separator}v=${encodeURIComponent(CACHE_VERSION)}`;
+    }
 
-        if (currentScript?.src) {
-            return new URL(relativePath, currentScript.src).href;
-        }
+    function engineUrl(path) {
+        return withVersion(ENGINE_BASE + path);
+    }
 
-        return new URL(relativePath, window.location.href).href;
+    function isPlainObject(value) {
+        return Boolean(value) &&
+            typeof value === 'object' &&
+            !Array.isArray(value);
     }
 
     function loadClassicScript(src) {
-        return new Promise((resolve, reject) => {
+        if (scriptPromises.has(src)) {
+            return scriptPromises.get(src);
+        }
+
+        const promise = new Promise((resolve, reject) => {
             const existing = Array.from(document.scripts)
                 .find(script => script.src === src);
 
             if (existing) {
-                if (global.PDFLib?.PDFDocument) {
+                if (existing.dataset.meetmindLoaded === 'true') {
                     resolve();
                     return;
                 }
 
                 existing.addEventListener('load', resolve, { once: true });
-                existing.addEventListener('error', reject, { once: true });
+                existing.addEventListener('error', () => {
+                    reject(new Error(`Failed to load script: ${src}`));
+                }, { once: true });
                 return;
             }
 
@@ -61,13 +100,20 @@
             script.src = src;
             script.async = true;
 
-            script.addEventListener('load', resolve, { once: true });
+            script.addEventListener('load', () => {
+                script.dataset.meetmindLoaded = 'true';
+                resolve();
+            }, { once: true });
+
             script.addEventListener('error', () => {
                 reject(new Error(`Failed to load script: ${src}`));
             }, { once: true });
 
             document.head.appendChild(script);
         });
+
+        scriptPromises.set(src, promise);
+        return promise;
     }
 
     async function ensurePdfLib() {
@@ -79,11 +125,145 @@
 
         if (!global.PDFLib?.PDFDocument) {
             throw new Error(
-                'PDFLib was not found. Add pdf-lib to the page or allow loading from jsDelivr.'
+                'PDFLib was not found after loading pdf-lib.'
             );
         }
 
         return global.PDFLib;
+    }
+
+    async function ensureFontkit() {
+        if (global.fontkit) {
+            return global.fontkit;
+        }
+
+        await loadClassicScript(FONTKIT_CDN);
+
+        if (!global.fontkit) {
+            throw new Error(
+                'fontkit was not found after loading @pdf-lib/fontkit.'
+            );
+        }
+
+        return global.fontkit;
+    }
+
+    async function fetchBytes(path) {
+        const response = await fetch(engineUrl(path), {
+            cache: 'no-store'
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                `Failed to load ${path}: ${response.status} ${response.statusText}`
+            );
+        }
+
+        return response.arrayBuffer();
+    }
+
+    function normalizeVisibility(options = {}) {
+        const source =
+            options.visibility ||
+            options.blocks ||
+            options.selectedBlocks ||
+            null;
+
+        if (!isPlainObject(source)) {
+            return {};
+        }
+
+        const aliases = Object.freeze({
+            stats: 'meetingStats',
+            meeting_stats: 'meetingStats',
+            meetingstats: 'meetingStats',
+
+            summary: 'executiveSummary',
+            executive_summary: 'executiveSummary',
+            executivesummary: 'executiveSummary',
+
+            metrics: 'keyMetrics',
+            key_metrics: 'keyMetrics',
+            keymetrics: 'keyMetrics',
+
+            insights: 'insights',
+            decisions: 'decisions',
+            risks: 'risks',
+            tasks: 'tasks',
+            architecture: 'architecture',
+            owners: 'owners'
+        });
+
+        const visibility = {};
+
+        for (const [rawKey, rawValue] of Object.entries(source)) {
+            const normalized = String(rawKey || '')
+                .trim()
+                .replace(/([a-z])([A-Z])/g, '$1_$2')
+                .toLowerCase()
+                .replace(/[\s-]+/g, '_');
+
+            const id = aliases[normalized] || rawKey;
+            visibility[id] = Boolean(rawValue);
+        }
+
+        return visibility;
+    }
+
+    function buildCompositionOptions(options = {}) {
+        const explicit = isPlainObject(options.composition)
+            ? { ...options.composition }
+            : {};
+
+        return {
+            ...explicit,
+            visibility: {
+                ...(isPlainObject(explicit.visibility)
+                    ? explicit.visibility
+                    : {}),
+                ...normalizeVisibility(options)
+            },
+
+            // Layout Engine owns physical fit/pagination.
+            // Prevent Composition mass heuristics from splitting the same
+            // semantic blocks before actual geometry is measured.
+            allowSecondPage: false
+        };
+    }
+
+    function createRendererMap(blockRenderers) {
+        const map = { ...blockRenderers };
+
+        for (const [canonicalId, rendererId] of
+            Object.entries(CANONICAL_TO_RENDERER)) {
+            const renderer = blockRenderers[rendererId];
+            if (typeof renderer === 'function') {
+                map[canonicalId] = renderer;
+            }
+        }
+
+        return Object.freeze(map);
+    }
+
+    function stampResolvedDensity(layoutResult) {
+        const density = layoutResult.density || 'regular';
+
+        const pages = layoutResult.pages.map(page => Object.freeze({
+            ...page,
+            density,
+            resolvedDensity: density,
+            blocks: Object.freeze(
+                page.blocks.map(block => Object.freeze({
+                    ...block,
+                    density
+                }))
+            )
+        }));
+
+        return Object.freeze({
+            ...layoutResult,
+            pages: Object.freeze(pages)
+        });
     }
 
     async function loadDependencies() {
@@ -95,13 +275,23 @@
             const [
                 compositionModule,
                 drawingModule,
-                pdfLib
+                renderContextModule,
+                pdfLib,
+                fontkit
             ] = await Promise.all([
-                import(resolveUrl(MODULE_PATHS.composition)),
-                import(resolveUrl(MODULE_PATHS.drawingSurface)),
+                import(engineUrl(PATHS.composition)),
+                import(engineUrl(PATHS.drawingSurface)),
+                import(engineUrl(PATHS.renderContext)),
                 ensurePdfLib(),
-                import(resolveUrl(MODULE_PATHS.layout))
+                ensureFontkit()
             ]);
+
+            // Load browser-global subsystems in dependency order.
+            await loadClassicScript(engineUrl(PATHS.layout));
+            await loadClassicScript(engineUrl(PATHS.designSystem));
+            await loadClassicScript(engineUrl(PATHS.icons));
+            await loadClassicScript(engineUrl(PATHS.blockRenderers));
+            await loadClassicScript(engineUrl(PATHS.renderer));
 
             const compose =
                 compositionModule.composeExecutiveReport ||
@@ -111,8 +301,13 @@
                 drawingModule.DrawingSurface ||
                 drawingModule.default?.DrawingSurface;
 
-            const layout =
-                global.MeetMindLayoutEngine?.layout;
+            const RenderContext =
+                renderContextModule.RenderContext ||
+                renderContextModule.default?.RenderContext;
+
+            const layout = global.MeetMindLayoutEngine?.layout;
+            const renderer = global.MeetMindRenderer;
+            const host = global[ENGINE_NAME];
 
             if (typeof compose !== 'function') {
                 throw new Error(
@@ -128,506 +323,173 @@
 
             if (typeof DrawingSurface !== 'function') {
                 throw new Error(
-                    'drawing-surface.js did not export DrawingSurface.'
+                    'Drawing Surface did not export DrawingSurface.'
+                );
+            }
+
+            if (typeof RenderContext !== 'function') {
+                throw new Error(
+                    'Render Context did not export RenderContext.'
+                );
+            }
+
+            if (!renderer || typeof renderer.render !== 'function') {
+                throw new Error(
+                    'Golden Renderer did not expose MeetMindRenderer.render().'
+                );
+            }
+
+            if (!host?.design?.TOKENS) {
+                throw new Error(
+                    'Golden Design System was not attached to ExecutiveSlideEngine.design.'
+                );
+            }
+
+            if (!host?.blockRenderers) {
+                throw new Error(
+                    'Golden Block Renderers were not attached to ExecutiveSlideEngine.blockRenderers.'
                 );
             }
 
             return Object.freeze({
                 compose,
                 layout,
+                renderer,
                 DrawingSurface,
-                PDFDocument: pdfLib.PDFDocument,
-                StandardFonts: pdfLib.StandardFonts,
-                rgb: pdfLib.rgb
+                RenderContext,
+                pdfLib,
+                fontkit,
+                design: host.design,
+                blockRenderers: host.blockRenderers,
+                rendererMap: createRendererMap(host.blockRenderers)
             });
         })();
 
         return dependenciesPromise;
     }
 
-    function isPlainObject(value) {
-        return Boolean(value) &&
-            typeof value === 'object' &&
-            !Array.isArray(value);
-    }
+    async function createSurface(dependencies) {
+        const surface = await dependencies.DrawingSurface.create({
+            PDFDocument: dependencies.pdfLib.PDFDocument,
+            fontkit: dependencies.fontkit
+        });
 
-    function buildCompositionOptions(options) {
-        if (isPlainObject(options.composition)) {
-            return options.composition;
-        }
+        const fontEntries = Object.entries(FONT_PATHS);
 
-        const visibility = {};
-        const source =
-            options.visibility ||
-            options.blocks ||
-            options.selectedBlocks ||
-            null;
-
-        if (isPlainObject(source)) {
-            for (const [key, value] of Object.entries(source)) {
-                visibility[normalizeBlockId(key)] = Boolean(value);
-            }
-        }
-
-        return {
-            visibility,
-            allowSecondPage: options.allowSecondPage !== false,
-            preferredDensity: options.preferredDensity,
-            pageCapacity: options.pageCapacity
-        };
-    }
-
-    function normalizeBlockId(value) {
-        const token = String(value || '')
-            .trim()
-            .replace(/([a-z])([A-Z])/g, '$1_$2')
-            .toLowerCase()
-            .replace(/[\s-]+/g, '_');
-
-        const aliases = {
-            meeting_stats: 'stats',
-            executive_summary: 'summary',
-            key_metrics: 'metrics',
-            participants: 'owners',
-            action_items: 'tasks'
-        };
-
-        return aliases[token] || token;
-    }
-
-    function cleanText(value) {
-        return String(value ?? '')
-            .replace(/\s+/g, ' ')
-            .trim();
-    }
-
-    function valueFromObject(item, keys) {
-        for (const key of keys) {
-            const value = item?.[key];
-            if (value !== undefined && value !== null && cleanText(value)) {
-                return cleanText(value);
-            }
-        }
-        return '';
-    }
-
-    function formatTask(task) {
-        if (!isPlainObject(task)) {
-            return cleanText(task);
-        }
-
-        const text = valueFromObject(task, [
-            'task', 'title', 'description', 'text'
-        ]);
-        const owner = valueFromObject(task, [
-            'owner', 'assignee', 'responsible'
-        ]);
-        const due = valueFromObject(task, [
-            'due', 'due_date', 'dueDate', 'deadline'
-        ]);
-
-        return [
-            text,
-            owner ? `Owner: ${owner}` : '',
-            due ? `Due: ${due}` : ''
-        ].filter(Boolean).join(' — ');
-    }
-
-    function formatListItem(item) {
-        if (!isPlainObject(item)) {
-            return cleanText(item);
-        }
-
-        const primary = valueFromObject(item, [
-            'title', 'name', 'task', 'item', 'text',
-            'decision', 'risk', 'insight', 'owner'
-        ]);
-
-        const secondary = valueFromObject(item, [
-            'description', 'details', 'reason',
-            'responsibility', 'value'
-        ]);
-
-        return [primary, secondary]
-            .filter(Boolean)
-            .join(' — ');
-    }
-
-    function blockLines(block) {
-        const data = block.data;
-
-        if (block.id === 'tasks' && Array.isArray(data)) {
-            return data.map(formatTask).filter(Boolean);
-        }
-
-        if (typeof data === 'string' || typeof data === 'number') {
-            return [cleanText(data)].filter(Boolean);
-        }
-
-        if (Array.isArray(data)) {
-            return data.map(formatListItem).filter(Boolean);
-        }
-
-        if (!isPlainObject(data)) {
-            return [];
-        }
-
-        const preferredArrays = [
-            data.items,
-            data.rows,
-            data.sections,
-            data.metrics,
-            data.tasks
-        ];
-
-        for (const candidate of preferredArrays) {
-            if (Array.isArray(candidate) && candidate.length > 0) {
-                return candidate.map(formatListItem).filter(Boolean);
-            }
-        }
-
-        const preferredText = valueFromObject(data, [
-            'text', 'summary', 'description', 'details', 'value'
-        ]);
-
-        if (preferredText) {
-            return [preferredText];
-        }
-
-        return Object.entries(data)
-            .filter(([, value]) =>
-                value !== null &&
-                value !== undefined &&
-                cleanText(value)
-            )
-            .map(([key, value]) =>
-                `${humanize(key)}: ${cleanText(value)}`
-            );
-    }
-
-    function humanize(value) {
-        return String(value || '')
-            .replace(/[_-]+/g, ' ')
-            .replace(/\b\w/g, char => char.toUpperCase());
-    }
-
-    function wrapText(text, font, size, maxWidth) {
-        const words = cleanText(text).split(' ').filter(Boolean);
-        if (words.length === 0) return [];
-
-        const lines = [];
-        let current = '';
-
-        for (const word of words) {
-            const candidate = current ? `${current} ${word}` : word;
-
-            if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
-                current = candidate;
-                continue;
-            }
-
-            if (current) {
-                lines.push(current);
-            }
-
-            if (font.widthOfTextAtSize(word, size) <= maxWidth) {
-                current = word;
-                continue;
-            }
-
-            let fragment = '';
-            for (const char of word) {
-                const next = fragment + char;
-                if (font.widthOfTextAtSize(next, size) <= maxWidth) {
-                    fragment = next;
-                } else {
-                    if (fragment) lines.push(fragment);
-                    fragment = char;
-                }
-            }
-            current = fragment;
-        }
-
-        if (current) {
-            lines.push(current);
-        }
-
-        return lines;
-    }
-
-    function geometryToPdf(geometry, layoutSize, pdfSize) {
-        const scaleX = pdfSize.width / layoutSize.width;
-        const scaleY = pdfSize.height / layoutSize.height;
-
-        return {
-            x: geometry.x * scaleX,
-            y: pdfSize.height -
-                (geometry.y + geometry.height) * scaleY,
-            width: geometry.width * scaleX,
-            height: geometry.height * scaleY
-        };
-    }
-
-    function drawBlock({
-        surface,
-        block,
-        layoutSize,
-        pdfSize,
-        regularFont,
-        boldFont,
-        rgb
-    }) {
-        const sourceGeometry =
-            block.layout?.geometry ||
-            block.geometry;
-
-        if (!sourceGeometry) {
-            return;
-        }
-
-        const box = geometryToPdf(
-            sourceGeometry,
-            layoutSize,
-            pdfSize
+        const fontBuffers = await Promise.all(
+            fontEntries.map(([, path]) => fetchBytes(path))
         );
 
-        const border = rgb(0.83, 0.85, 0.88);
-        const background = rgb(0.985, 0.987, 0.99);
-        const primary = rgb(0.10, 0.12, 0.16);
-        const secondary = rgb(0.34, 0.37, 0.43);
-
-        if (block.id === 'header') {
-            const title =
-                cleanText(block.data?.title) ||
-                'Untitled Meeting';
-            const date = cleanText(block.data?.date);
-
-            surface.drawText(title, {
-                x: box.x,
-                y: box.y + box.height - 25,
-                size: 20,
-                font: boldFont,
-                color: primary
-            });
-
-            if (date) {
-                surface.drawText(date, {
-                    x: box.x,
-                    y: box.y + 7,
-                    size: 8.5,
-                    font: regularFont,
-                    color: secondary
-                });
-            }
-            return;
+        for (let index = 0; index < fontEntries.length; index += 1) {
+            const [fontName] = fontEntries[index];
+            await surface.registerFont(
+                fontName,
+                fontBuffers[index]
+            );
         }
 
-        if (block.id === 'footer') {
-            surface.drawLine({
-                start: { x: box.x, y: box.y + box.height },
-                end: {
-                    x: box.x + box.width,
-                    y: box.y + box.height
-                },
-                thickness: 0.6,
-                color: border
-            });
+        return surface;
+    }
 
-            surface.drawText(
-                cleanText(block.data?.text) ||
-                    'Generated by MeetMind AI',
+    async function generate(report, options = {}) {
+        if (!isPlainObject(report)) {
+            throw new TypeError(
+                'ExecutiveSlideEngine.generate(report): report must be an object.'
+            );
+        }
+
+        console.log(
+            `✅ MeetMind Executive PDF Engine ${ENGINE_VERSION}`
+        );
+
+        const dependencies = await loadDependencies();
+
+        const compositionResult = dependencies.compose(
+            report,
+            buildCompositionOptions(options)
+        );
+
+        const rawLayoutResult = dependencies.layout(
+            compositionResult,
+            isPlainObject(options.layout)
+                ? options.layout
+                : {}
+        );
+
+        const layoutResult = stampResolvedDensity(
+            rawLayoutResult
+        );
+
+        if (layoutResult.valid === false) {
+            console.warn(
+                'MeetMind PDF layout contains validation diagnostics.',
+                layoutResult.diagnostics
+            );
+        }
+
+        const surface = await createSurface(dependencies);
+
+        const renderContext =
+            new dependencies.RenderContext(
+                surface,
+                dependencies.design.TOKENS,
                 {
-                    x: box.x,
-                    y: box.y + 5,
-                    size: 7.5,
-                    font: regularFont,
-                    color: secondary
+                    report,
+                    rgb: dependencies.pdfLib.rgb,
+                    pageSize: [
+                        dependencies.design.TOKENS.page.width,
+                        dependencies.design.TOKENS.page.height
+                    ]
                 }
             );
-            return;
-        }
 
-        if (block.id === 'stats') {
-            const value = blockLines(block).join('   •   ');
-
-            if (value) {
-                surface.drawText(value, {
-                    x: box.x,
-                    y: box.y + Math.max(7, box.height / 2 - 4),
-                    size: 9,
-                    font: boldFont,
-                    color: secondary
-                });
+        const renderResult = dependencies.renderer.render(
+            layoutResult,
+            renderContext,
+            {
+                blockRenderers: dependencies.rendererMap
             }
-            return;
-        }
-
-        surface.drawRect({
-            x: box.x,
-            y: box.y,
-            width: box.width,
-            height: box.height,
-            borderWidth: 0.7,
-            color: background,
-            borderColor: border,
-            opacity: 1
-        });
-
-        const padding = 10;
-        const titleSize = 10.5;
-        const bodySize = block.id === 'summary' ? 9 : 8.3;
-        const lineHeight = bodySize * 1.32;
-        const title = BLOCK_TITLES[block.id] || humanize(block.id);
-
-        surface.drawText(title, {
-            x: box.x + padding,
-            y: box.y + box.height - padding - titleSize,
-            size: titleSize,
-            font: boldFont,
-            color: primary
-        });
-
-        const rawLines = blockLines(block);
-        const wrapped = [];
-        const availableWidth = Math.max(
-            40,
-            box.width - padding * 2
         );
 
-        for (const rawLine of rawLines) {
-            const bullet = block.id === 'summary' ? '' : '• ';
-            const parts = wrapText(
-                bullet + rawLine,
-                regularFont,
-                bodySize,
-                availableWidth
+        const pdfBytes = await surface.save();
+
+        const blob = new Blob([pdfBytes], {
+            type: 'application/pdf'
+        });
+
+        console.log('✅ MeetMind Golden PDF generated', {
+            pages: layoutResult.pageCount,
+            density: layoutResult.density,
+            bytes: pdfBytes.length,
+            attempts: layoutResult.attempts,
+            renderedPages: renderResult.pageCount
+        });
+
+        if (
+            options.benchmark === 'enterpriseArchitectureCards' &&
+            layoutResult.pageCount !== 1
+        ) {
+            console.warn(
+                'BENCHMARK CONTRACT CONFLICT: Enterprise Architecture Cards did not fit on one page.',
+                {
+                    pageCount: layoutResult.pageCount,
+                    density: layoutResult.density,
+                    attempts: layoutResult.attempts
+                }
             );
-            wrapped.push(...parts);
         }
 
-        const bodyTop =
-            box.y + box.height - padding - titleSize - 12;
-        const availableHeight =
-            bodyTop - (box.y + padding);
-        const maxLines = Math.max(
-            0,
-            Math.floor(availableHeight / lineHeight)
-        );
-
-        const visibleLines = wrapped.slice(0, maxLines);
-
-        if (wrapped.length > maxLines && visibleLines.length > 0) {
-            const lastIndex = visibleLines.length - 1;
-            visibleLines[lastIndex] =
-                visibleLines[lastIndex].replace(/[.…]*$/, '') + '…';
-        }
-
-        visibleLines.forEach((line, index) => {
-            surface.drawText(line, {
-                x: box.x + padding,
-                y: bodyTop - index * lineHeight,
-                size: bodySize,
-                font: regularFont,
-                color: secondary
-            });
-        });
+        return blob;
     }
 
-    async function renderPdf(layoutResult, dependencies) {
-        const {
-            DrawingSurface,
-            PDFDocument,
-            StandardFonts,
-            rgb
-        } = dependencies;
+    // Keep one mutable namespace because Design System and Block Renderers attach
+    // themselves to this public host during lazy loading.
+    const host = global[ENGINE_NAME] || {};
 
-        const surface = await DrawingSurface.create({
-            PDFDocument
-        });
+    host.name = ENGINE_NAME;
+    host.version = ENGINE_VERSION;
+    host.generate = generate;
 
-        const regularFont = await surface.pdf.embedFont(
-            StandardFonts.Helvetica
-        );
-        const boldFont = await surface.pdf.embedFont(
-            StandardFonts.HelveticaBold
-        );
-
-        for (const layoutPage of layoutResult.pages) {
-            surface.addPage(PAGE_SIZE);
-
-            const pdfSize = {
-                width: PAGE_SIZE[0],
-                height: PAGE_SIZE[1]
-            };
-
-            for (const block of layoutPage.blocks) {
-                drawBlock({
-                    surface,
-                    block,
-                    layoutSize: layoutPage.size,
-                    pdfSize,
-                    regularFont,
-                    boldFont,
-                    rgb
-                });
-            }
-        }
-
-        return surface.save();
-    }
-
-    global[ENGINE_NAME] = Object.freeze({
-        name: ENGINE_NAME,
-        version: ENGINE_VERSION,
-
-        async generate(report, options = {}) {
-            if (!isPlainObject(report)) {
-                throw new TypeError(
-                    'ExecutiveSlideEngine.generate(report): report must be an object.'
-                );
-            }
-
-            console.log(
-                `✅ MeetMind Executive PDF Engine ${ENGINE_VERSION} loaded`
-            );
-
-            const dependencies = await loadDependencies();
-
-            const compositionResult = dependencies.compose(
-                report,
-                buildCompositionOptions(options)
-            );
-
-            const layoutResult = dependencies.layout(
-                compositionResult,
-                isPlainObject(options.layout)
-                    ? options.layout
-                    : {}
-            );
-
-            if (layoutResult.valid === false) {
-                console.warn(
-                    'MeetMind PDF layout contains validation warnings.',
-                    layoutResult.diagnostics
-                );
-            }
-
-            const pdfBytes = await renderPdf(
-                layoutResult,
-                dependencies
-            );
-
-            const blob = new Blob([pdfBytes], {
-                type: 'application/pdf'
-            });
-
-            console.log('✅ MeetMind PDF generated', {
-                pages: layoutResult.pageCount,
-                bytes: pdfBytes.length
-            });
-
-            return blob;
-        }
-    });
+    global[ENGINE_NAME] = host;
 
 })(window);
