@@ -17,6 +17,37 @@
         insights:'Insights', decisions:'Decisions', risks:'Risks',
         tasks:'Tasks', architecture:'Architecture', owners:'Owners'
     };
+    const SECTION_ICONS = Object.freeze({
+        summary:'sparkles', metrics:'chart-column', insights:'lightbulb',
+        decisions:'circle-check', risks:'triangle-alert', tasks:'clipboard-list',
+        architecture:'settings', owners:'users'
+    });
+    const STAT_ICONS = Object.freeze({Participants:'users',Tasks:'clipboard-list',Decisions:'circle-check',Risks:'triangle-alert'});
+    const METRIC_ICONS = Object.freeze(['target','file-text','box','users-round','network','triangle-alert','calendar-days','layers']);
+
+    function icon(ctx,name,x,y,size,color){
+        const registry=global.ExecutiveSlideEngine?.icons;
+        const def=registry?.get?.(name);
+        if(!def)return false;
+        const k=size/24;
+        const X=v=>x+Number(v||0)*k, Y=v=>y+Number(v||0)*k;
+        def.nodes.forEach(([tag,a])=>{
+            if(tag==='path'&&a.d&&typeof ctx.svgPath==='function'){
+                ctx.svgPath(a.d,{x,y,size,color,stroke:color,borderWidth:.8});
+            } else if(tag==='circle'){
+                ctx.circle({x:X(a.cx),y:Y(a.cy),radius:Number(a.r||0)*k,stroke:color,borderWidth:.7});
+            } else if(tag==='line'){
+                ctx.line({x1:X(a.x1),y1:Y(a.y1),x2:X(a.x2),y2:Y(a.y2),color,thickness:.7});
+            } else if(tag==='polyline'){
+                const pts=String(a.points||'').trim().split(/\s+/).map(q=>q.split(',').map(Number));
+                for(let i=1;i<pts.length;i++)ctx.line({x1:X(pts[i-1][0]),y1:Y(pts[i-1][1]),x2:X(pts[i][0]),y2:Y(pts[i][1]),color,thickness:.7});
+            } else if(tag==='rect'){
+                ctx.rect({x:X(a.x),y:Y(a.y),width:Number(a.width||0)*k,height:Number(a.height||0)*k,stroke:color,borderWidth:.7});
+            }
+        });
+        return true;
+    }
+
 
     function clean(v){return v===null||v===undefined?'':String(v).replace(/\s+/g,' ').trim();}
     function density(ctx){return ctx.density||'regular';}
@@ -82,10 +113,10 @@
     }
     function sectionHeader(ctx,g,title,color='purplePrimary'){
         const sp=spacing(ctx), s=style(ctx,'blockTitle',{font:'bold',size:8.2,lineHeight:9.8,color:'textPrimary'});
-        // small cross/marker as current icon-system placeholder, deterministic and unobtrusive
-        ctx.line({x1:g.x+sp.padX,y1:g.y+sp.padY+4,x2:g.x+sp.padX+7,y2:g.y+sp.padY+4,color,thickness:.7});
-        ctx.line({x1:g.x+sp.padX+3.5,y1:g.y+sp.padY+.5,x2:g.x+sp.padX+3.5,y2:g.y+sp.padY+7.5,color,thickness:.7});
-        ctx.text(title,{x:g.x+sp.padX+12,y:g.y+sp.padY,size:s.size,font:s.font,color});
+        const key=Object.keys(TITLES).find(k=>TITLES[k]===title);
+        const size=10;
+        icon(ctx,SECTION_ICONS[key]||'sparkles',g.x+sp.padX,g.y+sp.padY-1,size,color);
+        ctx.text(title,{x:g.x+sp.padX+14,y:g.y+sp.padY,size:s.size,font:s.font,color});
         return g.y+sp.padY+s.lineHeight+sp.titleGap;
     }
     function blockData(block){
@@ -156,10 +187,11 @@
         const itemW=Math.min(120,(g.width-12)/Math.max(1,entries.length));
         let x=g.x+9;
         entries.forEach((e,i)=>{
-            ctx.circle({x:x+4,y:g.y+8,radius:3,fill:colors[i]||'purplePrimary'});
-            ctx.text(e.label,{x:x+11,y:g.y+3,size:label.size,font:label.font,color:label.color});
+            const c=colors[i]||'purplePrimary';
+            icon(ctx,STAT_ICONS[e.label]||'circle-check',x,g.y+2,10,c);
+            ctx.text(e.label,{x:x+14,y:g.y+3,size:label.size,font:label.font,color:label.color});
             const lw=measure(ctx,e.label,label);
-            ctx.text(e.value,{x:x+14+lw,y:g.y+3,size:value.size,font:value.font,color:value.color});
+            ctx.text(e.value,{x:x+17+lw,y:g.y+3,size:value.size,font:value.font,color:value.color});
             x+=itemW;
         });
     }
@@ -181,26 +213,22 @@
         const g=block.geometry; card(ctx,g);
         const sp=spacing(ctx); let y=sectionHeader(ctx,g,TITLES.metrics,'purplePrimary');
         const metrics=metricsFrom(block,ctx.report||{});
-        const cols=Math.min(4,Math.max(1,metrics.length));
-        const rows=Math.ceil(metrics.length/cols);
-        const gap=sp.cardGap;
+        const cols=4, rows=Math.max(1,Math.ceil(metrics.length/cols));
+        const gap=3;
         const innerX=g.x+sp.padX, innerW=g.width-sp.padX*2, innerBottom=g.y+g.height-sp.padY;
         const cellW=(innerW-gap*(cols-1))/cols;
-        const cellH=(innerBottom-y-gap*Math.max(0,rows-1))/Math.max(1,rows);
-        const ls=style(ctx,'metricLabel',{font:'semibold',size:5.2,lineHeight:6.2,color:'textSecondary'});
+        const cellH=(innerBottom-y-gap*(rows-1))/rows;
+        const ls=style(ctx,'metricLabel',{font:'semibold',size:5.2,lineHeight:6.2,color:'textPrimary'});
         const vs=style(ctx,'metricValue',{font:'bold',size:8.5,lineHeight:9.5,color:'textPrimary'});
-
         metrics.forEach((m,i)=>{
-            const col=i%cols,row=Math.floor(i/cols);
-            const x=innerX+col*(cellW+gap), cy=y+row*(cellH+gap);
+            const col=i%cols,row=Math.floor(i/cols), x=innerX+col*(cellW+gap), cy=y+row*(cellH+gap);
             ctx.rect({x,y:cy,width:cellW,height:cellH,fill:'cardBg',stroke:'borderDefault',borderWidth:.5,radius:3});
-            ctx.circle({x:x+8,y:cy+9,radius:2.1,fill:'purpleSoft',stroke:'purplePrimary',borderWidth:.5});
             const label=clean(m?.label||m?.title||m?.name||'');
             const value=clean(m?.value||m?.metric||m?.amount||'—');
-            const labelY=cy+6;
-            const labelHeight=textLines(ctx,label,x+13,labelY,cellW-18,ls);
-            const valueY=Math.max(cy+22,labelY+labelHeight+3);
-            textLines(ctx,value,x+6,valueY,cellW-12,vs,'center');
+            textLines(ctx,label,x+5,cy+5,cellW-10,ls,'center');
+            icon(ctx,METRIC_ICONS[i%METRIC_ICONS.length],x+cellW/2-6,cy+19,12,i===5?'orangeRisk':i===4?'greenSuccess':'purplePrimary');
+            const vw=measure(ctx,value,vs);
+            ctx.text(value,{x:x+(cellW-vw)/2,y:cy+cellH-13,size:vs.size,font:vs.font,color:vs.color});
         });
     }
 
@@ -281,30 +309,43 @@
         const sections=architectureFrom(block,ctx.report||{});
         const cols=Math.min(4,Math.max(1,sections.length)), gap=sp.cardGap;
         const innerX=g.x+sp.padX, innerW=g.width-sp.padX*2, colW=(innerW-gap*(cols-1))/cols;
-        const secNo=style(ctx,'architectureSectionNo',{font:'bold',size:6.8,lineHeight:8,color:'textPrimary'});
-        const secTitle=style(ctx,'architectureSectionTitle',{font:'bold',size:5.9,lineHeight:6.9,color:'textPrimary'});
-        const itemTitle=style(ctx,'architectureItemTitle',{font:'semibold',size:5,lineHeight:5.8,color:'textPrimary'});
-        const desc=style(ctx,'architectureDescription',{font:'regular',size:4.7,lineHeight:5.6,color:'textSecondary'});
         const accents=['purplePrimary','greenSuccess','orangeRisk','purplePrimary'];
-
+        const iconNames=['file-text','brain-circuit','database','settings'];
         sections.forEach((sec,i)=>{
-            const x=innerX+i*(colW+gap);
-            ctx.rect({x,y,width:colW,height:g.y+g.height-sp.padY-y,fill:'cardBg',stroke:'borderDefault',borderWidth:.5,radius:3});
+            const x=innerX+i*(colW+gap), bottom=g.y+g.height-sp.padY;
+            ctx.rect({x,y,width:colW,height:bottom-y,fill:'cardBg',stroke:'borderDefault',borderWidth:.5,radius:3});
+            const secNo=style(ctx,'architectureSectionNo',{font:'bold',size:6.5,lineHeight:7.5,color:'textPrimary'});
+            const secTitle=style(ctx,'architectureSectionTitle',{font:'bold',size:5.7,lineHeight:6.5,color:'textPrimary'});
             ctx.text(String(i+1),{x:x+6,y:y+6,size:secNo.size,font:secNo.font,color:accents[i]});
-            let sy=y+6;
-            sy+=textLines(ctx,clean(sec?.title||sec?.name),x+17,sy,colW-22,secTitle);
-            sy+=4;
-            (Array.isArray(sec?.items)?sec.items:[]).forEach(item=>{
-                ctx.circle({x:x+7,y:sy+3,radius:1.5,fill:accents[i]});
-                const t=clean(item?.title||item?.name||item?.label);
-                const d=clean(item?.description||item?.text||'');
-                sy+=textLines(ctx,t,x+12,sy,colW-17,itemTitle);
-                if(d)sy+=textLines(ctx,d,x+12,sy,colW-17,desc);
-                sy+=2;
-            });
-            if(i<sections.length-1){
-                ctx.text('›',{x:x+colW+gap/2-1.5,y:y+8,size:6,font:'bold',color:'textMuted'});
+            let sy=y+6+textLines(ctx,clean(sec?.title||sec?.name),x+17,y+6,colW-22,secTitle)+3;
+            const items=Array.isArray(sec?.items)?sec.items:[];
+            // Fit all semantic content inside the immutable architecture card.
+            // We only reduce visual typography within the approved dense floor; nothing is removed.
+            let scale=1;
+            const available=bottom-sy-2;
+            function estimate(sc){
+                let h=0;
+                const it={font:'semibold',size:4.8*sc,lineHeight:5.5*sc,color:'textPrimary'};
+                const ds={font:'regular',size:4.5*sc,lineHeight:5.2*sc,color:'textSecondary'};
+                items.forEach(item=>{
+                    h+=wrap(ctx,clean(item?.title||item?.name||item?.label),colW-19,it).length*it.lineHeight;
+                    const d=clean(item?.description||item?.text||'');
+                    if(d)h+=wrap(ctx,d,colW-19,ds).length*ds.lineHeight;
+                    h+=1.4;
+                });
+                return h;
             }
+            while(scale>.78 && estimate(scale)>available)scale-=.04;
+            const itemTitle={font:'semibold',size:4.8*scale,lineHeight:5.5*scale,color:'textPrimary'};
+            const desc={font:'regular',size:4.5*scale,lineHeight:5.2*scale,color:'textSecondary'};
+            items.forEach((item,j)=>{
+                icon(ctx,iconNames[(i+j)%iconNames.length],x+5,sy,6.5,accents[i]);
+                const t=clean(item?.title||item?.name||item?.label), d=clean(item?.description||item?.text||'');
+                sy+=textLines(ctx,t,x+13,sy,colW-18,itemTitle);
+                if(d)sy+=textLines(ctx,d,x+13,sy,colW-18,desc);
+                sy+=1.4;
+            });
+            if(i<sections.length-1)ctx.text('›',{x:x+colW+gap/2-1.5,y:y+8,size:6,font:'bold',color:'textMuted'});
         });
     }
 
@@ -313,7 +354,8 @@
     function renderOwners(block,ctx){
         const g=block.geometry; const sp=spacing(ctx);
         const title=style(ctx,'blockTitle',{font:'bold',size:8.2,lineHeight:9.8,color:'textPrimary'});
-        ctx.text(TITLES.owners,{x:g.x+sp.padX,y:g.y+sp.padY,size:title.size,font:title.font,color:'purplePrimary'});
+        icon(ctx,'users',g.x+sp.padX,g.y+sp.padY-1,10,'purplePrimary');
+        ctx.text(TITLES.owners,{x:g.x+sp.padX+14,y:g.y+sp.padY,size:title.size,font:title.font,color:'textPrimary'});
         const owners=ownersFrom(block,ctx.report||{});
         const name=style(ctx,'ownerName',{font:'medium',size:5.3,lineHeight:6.2,color:'textPrimary'});
         const init=style(ctx,'ownerInitials',{font:'bold',size:5.2,lineHeight:6,color:'purplePrimary'});
@@ -339,7 +381,7 @@
     }
 
     host.blockRenderers=Object.freeze({
-        version:'1.1.0-golden',
+        version:'1.2.0-golden-visual-6B',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
