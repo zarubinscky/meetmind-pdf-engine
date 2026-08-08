@@ -79,13 +79,17 @@ export class DrawingSurface {
     this.currentPage.drawLine({start,end,thickness,color});
   }
 
-  drawSvgPath(path, {x,y,scale=1,borderWidth=1,borderColor,color,opacity} = {}) {
+  drawSvgPath(path, {x=0,y=0,scale=1,color,borderColor,borderWidth=1,opacity=1} = {}) {
     this.#assertPage();
     if (typeof this.currentPage.drawSvgPath !== "function") {
       throw new Error("PDF backend does not support drawSvgPath().");
     }
     this.currentPage.drawSvgPath(String(path || ""), {
-      x, y, scale, borderWidth, borderColor, color, opacity
+      x, y, scale,
+      color,
+      borderColor,
+      borderWidth,
+      opacity
     });
   }
 
