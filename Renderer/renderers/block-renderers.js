@@ -32,17 +32,19 @@
         const k=size/24;
         const X=v=>x+Number(v||0)*k, Y=v=>y+Number(v||0)*k;
         def.nodes.forEach(([tag,a])=>{
-            if(tag==='path'&&a.d&&typeof ctx.svgPath==='function'){
-                ctx.svgPath(a.d,{x,y,size,color,stroke:color,borderWidth:.8});
+            if(tag==='path' && a.d){
+                if(typeof ctx.svgPath==='function') {
+                    ctx.svgPath(a.d,{x,y,size,color,stroke:color,borderWidth:.65});
+                }
             } else if(tag==='circle'){
-                ctx.circle({x:X(a.cx),y:Y(a.cy),radius:Number(a.r||0)*k,stroke:color,borderWidth:.7});
+                ctx.circle({x:X(a.cx),y:Y(a.cy),radius:Number(a.r||0)*k,stroke:color,borderWidth:.65});
             } else if(tag==='line'){
-                ctx.line({x1:X(a.x1),y1:Y(a.y1),x2:X(a.x2),y2:Y(a.y2),color,thickness:.7});
+                ctx.line({x1:X(a.x1),y1:Y(a.y1),x2:X(a.x2),y2:Y(a.y2),color,thickness:.65});
             } else if(tag==='polyline'){
                 const pts=String(a.points||'').trim().split(/\s+/).map(q=>q.split(',').map(Number));
-                for(let i=1;i<pts.length;i++)ctx.line({x1:X(pts[i-1][0]),y1:Y(pts[i-1][1]),x2:X(pts[i][0]),y2:Y(pts[i][1]),color,thickness:.7});
+                for(let i=1;i<pts.length;i++)ctx.line({x1:X(pts[i-1][0]),y1:Y(pts[i-1][1]),x2:X(pts[i][0]),y2:Y(pts[i][1]),color,thickness:.65});
             } else if(tag==='rect'){
-                ctx.rect({x:X(a.x),y:Y(a.y),width:Number(a.width||0)*k,height:Number(a.height||0)*k,stroke:color,borderWidth:.7});
+                ctx.rect({x:X(a.x),y:Y(a.y),width:Number(a.width||0)*k,height:Number(a.height||0)*k,stroke:color,borderWidth:.65});
             }
         });
         return true;
@@ -381,7 +383,7 @@
     }
 
     host.blockRenderers=Object.freeze({
-        version:'1.2.0-golden-visual-6B',
+        version:'1.3.0-golden-icon-system-6C',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
