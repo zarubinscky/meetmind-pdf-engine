@@ -112,16 +112,17 @@ export class RenderContext {
       svgPath(path, options = {}) {
         const size = Number(options.size || 24);
         const scale = size / 24;
-        // pdf-lib SVG paths use a PDF-space origin. y therefore anchors the
-        // lower-left of the 24x24 icon box while callers use top coordinates.
+        const topY = Number(options.y || 0);
         return root.surface.drawSvgPath(path, {
           x: Number(options.x || 0),
-          y: height - Number(options.y || 0) - size,
+          // pdf-lib SVG paths use their own local Y axis. Anchor the 24x24
+          // icon viewport at the requested top-left position.
+          y: height - topY - size,
           scale,
-          borderWidth: Number(options.borderWidth || 0.8),
-          borderColor: color(options.stroke || options.color),
           color: options.fill ? color(options.fill) : undefined,
-          opacity: options.opacity
+          borderColor: color(options.stroke || options.color),
+          borderWidth: Number(options.borderWidth ?? 0.8),
+          opacity: options.opacity ?? 1
         });
       },
 
