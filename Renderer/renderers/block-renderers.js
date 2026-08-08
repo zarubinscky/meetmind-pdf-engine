@@ -1,1495 +1,253 @@
 /*
- * MeetMind AI — Executive Slide Engine
- * block-renderers.js
+ * MeetMind AI — Executive PDF Engine
+ * Golden Semantic Block Renderers v1.0
  *
- * Version: 1.0.0-review.1
- * Status: Production candidate for Internal Implementation Review
- *
- * Public API:
- *   ExecutiveSlideEngine.blockRenderers.version
- *   ExecutiveSlideEngine.blockRenderers.header(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.stats(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.summary(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.metrics(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.insights(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.decisions(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.risks(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.tasks(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.architecture(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.owners(block, renderContext)
- *   ExecutiveSlideEngine.blockRenderers.footer(block, renderContext)
- *
- * Frozen invocation contract:
- *   blockRenderer(block, renderContext)
- *
- * This module draws only inside geometry supplied by LayoutResult.
- * It does not measure blocks, calculate layout, paginate, apply overflow
- * policy, mutate LayoutResult, or inspect unrelated business state.
+ * The renderers consume immutable geometry from Layout Engine and visual
+ * tokens from Golden Design System. They never paginate, truncate, ellipsize,
+ * hide content, or change business semantics.
  */
-
-(function initializeBlockRenderers(globalScope) {
+(function initializeGoldenBlockRenderers(globalScope) {
     'use strict';
 
-    const MODULE_NAME = 'Block Renderers';
-    const VERSION = '1.0.0-review.1';
     const engine = globalScope.ExecutiveSlideEngine || {};
+    const VERSION = '1.0.0-golden';
 
-    const SECTION_TITLES = Object.freeze({
-        summary: 'Executive Summary',
-        metrics: 'Key Metrics',
-        insights: 'Insights',
-        decisions: 'Decisions',
-        risks: 'Risks',
-        tasks: 'Tasks',
-        architecture: 'Architecture',
-        owners: 'Owners',
-        stats: 'Meeting Statistics'
+    const TITLES = Object.freeze({
+        summary: 'Executive Summary', metrics: 'Key Metrics', insights: 'Insights',
+        decisions: 'Decisions', risks: 'Risks', tasks: 'Tasks',
+        architecture: 'Architecture', owners: 'Owners'
     });
 
-    function renderHeader(block, renderContext) {
-        const state = createRenderState(block, renderContext);
-        const report = state.report;
-        const title = firstText(
-            report.title,
-            report.meeting_title,
-            report.meetingTitle,
-            report.name,
-            'Meeting Report'
-        );
-        const subtitleParts = [
-            firstText(report.date, report.meeting_date, report.meetingDate),
-            firstText(report.duration, report.duration_text, report.durationText),
-            firstText(report.source, report.source_file, report.sourceFile)
-        ].filter(Boolean);
+    const ACCENT = Object.freeze({
+        summary: 'purplePrimary', metrics: 'purplePrimary', insights: 'purplePrimary',
+        decisions: 'greenSuccess', risks: 'orangeRisk', tasks: 'purplePrimary',
+        architecture: 'purplePrimary', owners: 'purplePrimary'
+    });
 
-        drawText(state, {
-            text: title,
-            x: state.box.x,
-            yTop: state.box.y,
-            width: state.box.width,
-            maxHeight: Math.min(state.box.height, 28),
-            style: tokenTextStyle(state, 'headerTitle'),
-            maxLines: 1
-        });
-
-        if (subtitleParts.length > 0) {
-            drawText(state, {
-                text: subtitleParts.join('  •  '),
-                x: state.box.x,
-                yTop: state.box.y + 28,
-                width: state.box.width,
-                maxHeight: Math.max(0, state.box.height - 28),
-                style: tokenTextStyle(state, 'headerSubtitle'),
-                maxLines: 2
-            });
-        }
-    }
-
-    function renderStats(block, renderContext) {
-        const state = createRenderState(block, renderContext);
-        drawCard(state, { service: true });
-        drawSectionHeader(state, SECTION_TITLES.stats, 'service');
-
-        const entries = normalizeStats(state.report.stats);
-        const content = entries.length > 0
-            ? entries.map(function mapEntry(entry) {
-                return entry.label + ': ' + entry.value;
-            }).join('   •   ')
-            : '—';
-
-        drawBodyText(state, content, {
-            role: 'service',
-            color: 'secondary',
-            maxLines: 2
-        });
-    }
-
-    function renderSummary(block, renderContext) {
-        const state = createRenderState(block, renderContext);
-        drawCard(state);
-        drawSectionHeader(state, SECTION_TITLES.summary, 'primary');
-        drawBodyText(
-            state,
-            firstText(
-                state.report.summary,
-                state.report.executive_summary,
-                state.report.executiveSummary,
-                state.report.meeting_summary,
-                state.report.meetingSummary,
-                '—'
-            ),
-            {
-                role: 'primary'
-            }
-        );
-    }
-
-    function renderMetrics(block, renderContext) {
-        const state = createRenderState(block, renderContext);
-        drawCard(state);
-        drawSectionHeader(state, SECTION_TITLES.metrics, 'core');
-        drawMetricGrid(state, normalizeMetrics(state.report.metrics));
-    }
-
-    function renderInsights(block, renderContext) {
-        renderListSection(
-            block,
-            renderContext,
-            SECTION_TITLES.insights,
-            stateValue(renderContext, 'insights'),
-            'core'
-        );
-    }
-
-    function renderDecisions(block, renderContext) {
-        renderListSection(
-            block,
-            renderContext,
-            SECTION_TITLES.decisions,
-            stateValue(renderContext, 'decisions'),
-            'core'
-        );
-    }
-
-    function renderRisks(block, renderContext) {
-        renderListSection(
-            block,
-            renderContext,
-            SECTION_TITLES.risks,
-            stateValue(renderContext, 'risks'),
-            'core'
-        );
-    }
-
-    function renderTasks(block, renderContext) {
-        const state = createRenderState(block, renderContext);
-        drawCard(state);
-        drawSectionHeader(state, SECTION_TITLES.tasks, 'core');
-        drawTaskTable(state, normalizeTasks(state.report.tasks));
-    }
-
-    function renderArchitecture(block, renderContext) {
-        const state = createRenderState(block, renderContext);
-        drawCard(state);
-        drawSectionHeader(state, SECTION_TITLES.architecture, 'supporting');
-        drawArchitectureGrid(
-            state,
-            normalizeListItems(state.report.architecture)
-        );
-    }
-
-    function renderOwners(block, renderContext) {
-        const state = createRenderState(block, renderContext);
-        drawCard(state, { service: true });
-        drawSectionHeader(state, SECTION_TITLES.owners, 'service');
-
-        const owners = normalizeOwners(state.report.owners);
-        const content = owners.length > 0
-            ? owners.map(function mapOwner(owner) {
-                return owner.role
-                    ? owner.name + ' — ' + owner.role
-                    : owner.name;
-            }).join('   •   ')
-            : '—';
-
-        drawBodyText(state, content, {
-            role: 'service',
-            maxLines: 3
-        });
-    }
-
-    function renderFooter(block, renderContext) {
-        const state = createRenderState(block, renderContext);
-        drawDivider(state, state.box.x, state.box.y, state.box.width);
-
-        const footerText = firstText(
-            state.options.footerText,
-            state.options.footer_text,
-            'Generated by MeetMind AI'
-        );
-
-        drawText(state, {
-            text: footerText,
-            x: state.box.x,
-            yTop: state.box.y + 6,
-            width: state.box.width,
-            maxHeight: Math.max(0, state.box.height - 6),
-            style: tokenTextStyle(state, 'small'),
-            maxLines: 1
-        });
-    }
-
-    function renderListSection(
-        block,
-        renderContext,
-        title,
-        source,
-        role
-    ) {
-        const state = createRenderState(block, renderContext);
-        drawCard(state);
-        drawSectionHeader(state, title, role);
-        drawBulletList(state, normalizeListItems(source), role);
-    }
-
-    function createRenderState(block, renderContext) {
-        validateDependencies();
-        validateBlock(block);
-        validateRenderContext(renderContext);
-
-        const offsets = resolveOffsets(renderContext);
-        const box = {
-            x: block.x + offsets.x,
-            y: block.y + offsets.y,
-            width: block.width,
-            height: block.height
-        };
-
+    function state(block, ctx) {
+        const design = engine.design;
+        if (!design) throw new Error('Golden block renderers require ExecutiveSlideEngine.design.');
+        const density = normalizeDensity(block.density || ctx.density);
         return {
-            block,
-            context: renderContext,
-            page: renderContext.page,
-            fonts: renderContext.fonts,
-            report: isPlainObject(renderContext.report)
-                ? renderContext.report
-                : {},
-            options: isPlainObject(renderContext.options)
-                ? renderContext.options
-                : {},
-            design: engine.design,
-            tokens: engine.design.TOKENS,
-            density: normalizeDensity(renderContext.density),
-            box
+            block, ctx, density, tokens: design.TOKENS,
+            spacing: design.getDensityTokens(density),
+            type(name) { return design.getTypographyToken(name, density); },
+            color(name) { return design.getColor(name); }
         };
     }
 
-    function resolveOffsets(renderContext) {
-        if (isPlainObject(renderContext.contentOffset)) {
-            return {
-                x: finiteOrZero(renderContext.contentOffset.x),
-                y: finiteOrZero(renderContext.contentOffset.y)
-            };
-        }
+    function normalizeDensity(value) { return value === 'dense' || value === 'compact' ? value : 'regular'; }
+    function data(block) { return block && block.data != null ? block.data : {}; }
+    function asArray(value) { return Array.isArray(value) ? value : []; }
+    function text(value) { return value == null ? '' : String(value).trim(); }
+    function first(...values) { for (const v of values) { const t = text(v); if (t) return t; } return ''; }
 
-        if (isPlainObject(renderContext.layoutOptions)) {
-            return {
-                x: finiteOrZero(renderContext.layoutOptions.contentX),
-                y: finiteOrZero(renderContext.layoutOptions.contentY)
-            };
-        }
-
-        return {
-            x: finiteOrZero(renderContext.contentX),
-            y: finiteOrZero(renderContext.contentY)
-        };
+    function card(s, geometry, opts = {}) {
+        s.ctx.rect({
+            x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height,
+            fill: s.color(opts.fill || 'cardBg'),
+            stroke: s.color(opts.stroke || 'borderDefault'),
+            borderWidth: opts.borderWidth ?? s.tokens.borders.card.width,
+            radius: opts.radius ?? s.tokens.shapes.sectionRadius[s.density]
+        });
     }
 
-    function stateValue(renderContext, key) {
-        return isPlainObject(renderContext) &&
-            isPlainObject(renderContext.report)
-            ? renderContext.report[key]
-            : undefined;
+    function sectionHeader(s, title, accentName = 'purplePrimary', geometry = s.block.geometry) {
+        const style = s.type('blockTitle');
+        const x = geometry.x + s.spacing.cardPadX;
+        const y = geometry.y + s.spacing.cardPadY;
+        const icon = s.tokens.icons.section[s.density];
+        drawSectionGlyph(s, x + icon / 2, y + icon / 2, icon, accentName, s.block.id);
+        s.ctx.text(title, { x: x + icon + 4, y: y - 0.2, size: style.size, font: style.font, color: s.color(accentName) });
+        return y + Math.max(icon, style.lineHeight) + s.spacing.titleContentGap;
     }
 
-    function drawCard(state, options) {
-        const settings = options || {};
-        const tokens = state.tokens;
-        const border = resolveCardBorder(tokens);
-        const radius = resolveCardRadius(tokens);
-        const backgroundName = settings.service
-            ? 'serviceBackground'
-            : 'cardBackground';
-
-        const drawOptions = {
-            x: state.box.x,
-            y: toPdfY(state, state.box.y + state.box.height),
-            width: state.box.width,
-            height: state.box.height,
-            color: resolveColor(state, backgroundName),
-            borderColor: resolveColor(state, border.color),
-            borderWidth: border.width
-        };
-
-        if (radius > 0 && supportsRoundedRectangle(state.page)) {
-            state.page.drawRectangle(drawOptions);
+    function drawSectionGlyph(s, cx, cy, size, accentName, kind) {
+        const c = s.color(accentName);
+        const r = Math.max(1.4, size * 0.18);
+        if (kind === 'risks') {
+            s.ctx.line({ start:{x:cx, y:cy-size*.34}, end:{x:cx-size*.34,y:cy+size*.30}, thickness:1, color:c });
+            s.ctx.line({ start:{x:cx-size*.34,y:cy+size*.30}, end:{x:cx+size*.34,y:cy+size*.30}, thickness:1, color:c });
+            s.ctx.line({ start:{x:cx+size*.34,y:cy+size*.30}, end:{x:cx,y:cy-size*.34}, thickness:1, color:c });
             return;
         }
-
-        state.page.drawRectangle(drawOptions);
-    }
-
-    function drawSectionHeader(state, title, role) {
-        const padding = densityTokens(state).cardPadding;
-        const style = textRole(state, role).title;
-        const iconSize = resolveIconSize(state);
-        const iconGap = Math.max(4, densityTokens(state).titleGap);
-        const icon = resolveIcon(title);
-
-        let textX = state.box.x + padding;
-        const top = state.box.y + padding;
-
-        if (icon) {
-            drawIcon(state, icon, {
-                x: textX,
-                yTop: top + Math.max(0, (style.lineHeight - iconSize) / 2),
-                size: iconSize
-            });
-            textX += iconSize + iconGap;
-        }
-
-        drawText(state, {
-            text: title,
-            x: textX,
-            yTop: top,
-            width: Math.max(
-                0,
-                state.box.x + state.box.width - padding - textX
-            ),
-            maxHeight: style.lineHeight,
-            style,
-            maxLines: 1
-        });
-    }
-
-    function drawBodyText(state, text, options) {
-        const settings = options || {};
-        const role = settings.role || 'core';
-        const roleStyle = textRole(state, role);
-        const style = Object.assign(
-            {},
-            roleStyle.body,
-            settings.color ? { color: settings.color } : {}
-        );
-        const content = contentBox(state, roleStyle);
-
-        drawText(state, {
-            text: firstText(text, '—'),
-            x: content.x,
-            yTop: content.y,
-            width: content.width,
-            maxHeight: content.height,
-            style,
-            maxLines: settings.maxLines
-        });
-    }
-
-    function drawBulletList(state, items, role) {
-        const roleStyle = textRole(state, role || 'core');
-        const content = contentBox(state, roleStyle);
-        const spacing = densityTokens(state);
-        const bulletIndent = resolveBulletIndent(state);
-        const bulletRadius = resolveBulletRadius(state);
-        const textX = content.x + bulletIndent;
-        const textWidth = Math.max(0, content.width - bulletIndent);
-        let yTop = content.y;
-        let rendered = 0;
-
-        if (items.length === 0) {
-            drawBodyText(state, '—', { role: role || 'core', maxLines: 1 });
+        if (kind === 'decisions') {
+            s.ctx.circle({ x:cx, y:cy, radius:size*.35, stroke:c, borderWidth:1 });
+            s.ctx.line({ start:{x:cx-size*.17,y:cy}, end:{x:cx-size*.03,y:cy+size*.14}, thickness:1, color:c });
+            s.ctx.line({ start:{x:cx-size*.03,y:cy+size*.14}, end:{x:cx+size*.22,y:cy-size*.15}, thickness:1, color:c });
             return;
         }
-
-        for (let index = 0; index < items.length; index += 1) {
-            const item = items[index];
-            const remainingHeight =
-                content.y + content.height - yTop;
-
-            if (remainingHeight < roleStyle.body.lineHeight) {
-                break;
-            }
-
-            const lineBudget = Math.max(
-                1,
-                Math.floor(
-                    remainingHeight /
-                    roleStyle.body.lineHeight
-                )
-            );
-
-            const combined = item.description
-                ? item.title + '\n' + item.description
-                : item.title;
-
-            const result = drawText(state, {
-                text: combined,
-                x: textX,
-                yTop,
-                width: textWidth,
-                maxHeight: remainingHeight,
-                style: roleStyle.body,
-                secondaryLineStyle: roleStyle.secondary,
-                maxLines: Math.min(3, lineBudget)
-            });
-
-            drawCircle(state, {
-                x: content.x + bulletRadius,
-                yTop: yTop + roleStyle.body.size * 0.55,
-                radius: bulletRadius,
-                color: 'accent'
-            });
-
-            yTop += result.height + spacing.bulletGap;
-            rendered += 1;
-        }
-
-        const hiddenCount = items.length - rendered;
-        if (
-            hiddenCount > 0 &&
-            yTop + roleStyle.secondary.lineHeight <=
-                content.y + content.height
-        ) {
-            drawText(state, {
-                text: '… +' + hiddenCount + ' more',
-                x: textX,
-                yTop,
-                width: textWidth,
-                maxHeight:
-                    content.y + content.height - yTop,
-                style: roleStyle.secondary,
-                maxLines: 1
-            });
-        }
+        s.ctx.circle({ x:cx, y:cy, radius:r, fill:c, borderWidth:0 });
+        s.ctx.line({ start:{x:cx-r*2.1,y:cy}, end:{x:cx+r*2.1,y:cy}, thickness:.7, color:c });
+        s.ctx.line({ start:{x:cx,y:cy-r*2.1}, end:{x:cx,y:cy+r*2.1}, thickness:.7, color:c });
     }
 
-    function drawMetricGrid(state, metrics) {
-        const roleStyle = textRole(state, 'core');
-        const content = contentBox(state, roleStyle);
-        const gap = densityTokens(state).metricGap;
-
-        if (metrics.length === 0) {
-            drawBodyText(state, '—', { role: 'core', maxLines: 1 });
-            return;
-        }
-
-        const columns = metrics.length <= 2
-            ? metrics.length
-            : Math.min(4, metrics.length);
-        const rows = Math.ceil(metrics.length / columns);
-        const cellWidth =
-            (content.width - gap * (columns - 1)) / columns;
-        const cellHeight =
-            (content.height - gap * Math.max(0, rows - 1)) / rows;
-
-        metrics.forEach(function renderMetric(metric, index) {
-            const column = index % columns;
-            const row = Math.floor(index / columns);
-            const x = content.x + column * (cellWidth + gap);
-            const yTop = content.y + row * (cellHeight + gap);
-            const cellPadding = Math.min(6, densityTokens(state).cardPadding);
-
-            state.page.drawRectangle({
-                x,
-                y: toPdfY(state, yTop + cellHeight),
-                width: cellWidth,
-                height: cellHeight,
-                color: resolveColor(state, 'pageBackground'),
-                borderColor: resolveColor(state, 'cardBorder'),
-                borderWidth: resolveCardBorder(state.tokens).width
-            });
-
-            drawText(state, {
-                text: firstText(metric.value, '—'),
-                x: x + cellPadding,
-                yTop: yTop + cellPadding,
-                width: Math.max(0, cellWidth - cellPadding * 2),
-                maxHeight: Math.min(
-                    tokenTextStyle(state, 'metricValue').lineHeight,
-                    cellHeight
-                ),
-                style: tokenTextStyle(state, 'metricValue'),
-                maxLines: 1
-            });
-
-            drawText(state, {
-                text: firstText(metric.label, ''),
-                x: x + cellPadding,
-                yTop:
-                    yTop +
-                    cellPadding +
-                    tokenTextStyle(state, 'metricValue').lineHeight,
-                width: Math.max(0, cellWidth - cellPadding * 2),
-                maxHeight: Math.max(
-                    0,
-                    cellHeight -
-                    cellPadding * 2 -
-                    tokenTextStyle(state, 'metricValue').lineHeight
-                ),
-                style: tokenTextStyle(state, 'metricLabel'),
-                maxLines: 2
-            });
-        });
-    }
-
-    function drawTaskTable(state, tasks) {
-        const roleStyle = textRole(state, 'core');
-        const content = contentBox(state, roleStyle);
-        const headerStyle = roleStyle.secondary;
-        const bodyStyle = roleStyle.body;
-        const gap = Math.max(4, densityTokens(state).metricGap);
-        const ownerWidth = content.width * 0.22;
-        const dueWidth = content.width * 0.18;
-        const taskWidth = Math.max(
-            0,
-            content.width - ownerWidth - dueWidth - gap * 2
-        );
-        const columns = {
-            ownerX: content.x,
-            taskX: content.x + ownerWidth + gap,
-            dueX: content.x + ownerWidth + gap + taskWidth + gap
-        };
-        const headerHeight = headerStyle.lineHeight + 4;
-        let yTop = content.y;
-
-        drawText(state, {
-            text: 'Owner',
-            x: columns.ownerX,
-            yTop,
-            width: ownerWidth,
-            maxHeight: headerHeight,
-            style: headerStyle,
-            maxLines: 1
-        });
-        drawText(state, {
-            text: 'Task',
-            x: columns.taskX,
-            yTop,
-            width: taskWidth,
-            maxHeight: headerHeight,
-            style: headerStyle,
-            maxLines: 1
-        });
-        drawText(state, {
-            text: 'Due Date',
-            x: columns.dueX,
-            yTop,
-            width: dueWidth,
-            maxHeight: headerHeight,
-            style: headerStyle,
-            maxLines: 1
-        });
-
-        yTop += headerHeight;
-        drawDivider(state, content.x, yTop - 2, content.width);
-
-        if (tasks.length === 0) {
-            drawText(state, {
-                text: '—',
-                x: content.x,
-                yTop,
-                width: content.width,
-                maxHeight: Math.max(0, content.y + content.height - yTop),
-                style: bodyStyle,
-                maxLines: 1
-            });
-            return;
-        }
-
-        let rendered = 0;
-
-        for (let index = 0; index < tasks.length; index += 1) {
-            const task = tasks[index];
-            const remaining =
-                content.y + content.height - yTop;
-
-            if (remaining < bodyStyle.lineHeight) {
-                break;
-            }
-
-            const taskLines = wrapText(
-                state,
-                task.title,
-                taskWidth,
-                bodyStyle
-            ).slice(0, 2);
-            const rowHeight = Math.max(
-                bodyStyle.lineHeight,
-                taskLines.length * bodyStyle.lineHeight
-            ) + 3;
-
-            if (rowHeight > remaining) {
-                break;
-            }
-
-            drawText(state, {
-                text: task.owner,
-                x: columns.ownerX,
-                yTop,
-                width: ownerWidth,
-                maxHeight: rowHeight,
-                style: bodyStyle,
-                maxLines: 1
-            });
-            drawText(state, {
-                text: task.title,
-                x: columns.taskX,
-                yTop,
-                width: taskWidth,
-                maxHeight: rowHeight,
-                style: bodyStyle,
-                maxLines: 2
-            });
-            drawText(state, {
-                text: task.due,
-                x: columns.dueX,
-                yTop,
-                width: dueWidth,
-                maxHeight: rowHeight,
-                style: roleStyle.secondary,
-                maxLines: 1
-            });
-
-            yTop += rowHeight;
-            rendered += 1;
-
-            if (index < tasks.length - 1) {
-                drawDivider(state, content.x, yTop - 1, content.width);
-            }
-        }
-
-        const hiddenCount = tasks.length - rendered;
-        if (
-            hiddenCount > 0 &&
-            yTop + roleStyle.secondary.lineHeight <=
-                content.y + content.height
-        ) {
-            drawText(state, {
-                text: '… +' + hiddenCount + ' more',
-                x: content.x,
-                yTop,
-                width: content.width,
-                maxHeight:
-                    content.y + content.height - yTop,
-                style: roleStyle.secondary,
-                maxLines: 1
-            });
-        }
-    }
-
-    function drawArchitectureGrid(state, items) {
-        const roleStyle = textRole(state, 'supporting');
-        const content = contentBox(state, roleStyle);
-
-        if (items.length === 0) {
-            drawBodyText(state, '—', {
-                role: 'supporting',
-                maxLines: 1
-            });
-            return;
-        }
-
-        const visible = items.slice(0, 16);
-        const columns = 4;
-        const rows = Math.ceil(visible.length / columns);
-        const columnGap = Math.max(4, densityTokens(state).metricGap);
-        const rowGap = columnGap;
-        const cellWidth =
-            (content.width - columnGap * (columns - 1)) / columns;
-        const cellHeight =
-            (content.height - rowGap * Math.max(0, rows - 1)) / rows;
-
-        visible.forEach(function renderArchitectureItem(item, index) {
-            const column = index % columns;
-            const row = Math.floor(index / columns);
-            const x = content.x + column * (cellWidth + columnGap);
-            const yTop = content.y + row * (cellHeight + rowGap);
-            const padding = Math.min(5, densityTokens(state).cardPadding);
-
-            state.page.drawRectangle({
-                x,
-                y: toPdfY(state, yTop + cellHeight),
-                width: cellWidth,
-                height: cellHeight,
-                color: resolveColor(state, 'pageBackground'),
-                borderColor: resolveColor(state, 'cardBorder'),
-                borderWidth: resolveCardBorder(state.tokens).width
-            });
-
-            drawText(state, {
-                text: item.title,
-                x: x + padding,
-                yTop: yTop + padding,
-                width: Math.max(0, cellWidth - padding * 2),
-                maxHeight: Math.max(0, cellHeight - padding * 2),
-                style: roleStyle.body,
-                maxLines: 2,
-                align: 'center'
-            });
-        });
-    }
-
-    function drawText(state, options) {
-        const text = firstText(options.text, '');
-        const style = options.style;
-        const width = Math.max(0, options.width);
-        const maxHeight = Math.max(0, options.maxHeight);
-        const maxLinesByHeight = style.lineHeight > 0
-            ? Math.floor(maxHeight / style.lineHeight)
-            : 0;
-        const requestedMaxLines = Number.isInteger(options.maxLines)
-            ? options.maxLines
-            : Number.MAX_SAFE_INTEGER;
-        const maxLines = Math.max(
-            0,
-            Math.min(maxLinesByHeight, requestedMaxLines)
-        );
-
-        if (!text || width <= 0 || maxLines <= 0) {
-            return { lines: [], height: 0 };
-        }
-
-        let lines = wrapText(state, text, width, style);
-        if (lines.length > maxLines) {
-            lines = lines.slice(0, maxLines);
-            lines[lines.length - 1] = ellipsizeLine(
-                state,
-                lines[lines.length - 1],
-                width,
-                style
-            );
-        }
-
-        lines.forEach(function renderLine(line, index) {
-            const font = resolveFont(state, style.font);
-            const lineWidth = safeTextWidth(font, line, style.size);
-            let x = options.x;
-
-            if (options.align === 'center') {
-                x += Math.max(0, (width - lineWidth) / 2);
-            } else if (options.align === 'right') {
-                x += Math.max(0, width - lineWidth);
-            }
-
-            state.page.drawText(line, {
-                x,
-                y: toPdfY(
-                    state,
-                    options.yTop +
-                    index * style.lineHeight +
-                    style.size
-                ),
-                size: style.size,
-                font,
-                color: resolveColor(state, style.color)
-            });
-        });
-
-        return {
-            lines,
-            height: lines.length * style.lineHeight
-        };
-    }
-
-    function drawDivider(state, x, yTop, width) {
-        if (width <= 0) {
-            return;
-        }
-
-        const y = toPdfY(state, yTop);
-        state.page.drawLine({
-            start: { x, y },
-            end: { x: x + width, y },
-            thickness: resolveCardBorder(state.tokens).width,
-            color: resolveColor(state, 'cardBorder')
-        });
-    }
-
-    function drawCircle(state, options) {
-        if (typeof state.page.drawCircle !== 'function') {
-            return;
-        }
-
-        state.page.drawCircle({
-            x: options.x,
-            y: toPdfY(state, options.yTop),
-            size: options.radius,
-            color: resolveColor(state, options.color)
-        });
-    }
-
-    function drawIcon(state, iconName, options) {
-        if (
-            engine.icons &&
-            typeof engine.icons.draw === 'function'
-        ) {
-            engine.icons.draw(iconName, {
-                page: state.page,
-                x: options.x,
-                y: toPdfY(state, options.yTop + options.size),
-                size: options.size,
-                color: resolveColor(state, 'accent')
-            });
-        }
-    }
-
-    function contentBox(state, roleStyle) {
-        const spacing = densityTokens(state);
-        const padding = spacing.cardPadding;
-        const titleHeight = roleStyle.title.lineHeight;
-        const titleGap = spacing.titleGap;
-        const x = state.box.x + padding;
-        const y =
-            state.box.y +
-            padding +
-            titleHeight +
-            titleGap;
-        const width = Math.max(
-            0,
-            state.box.width - padding * 2
-        );
-        const height = Math.max(
-            0,
-            state.box.y +
-            state.box.height -
-            padding -
-            y
-        );
-
-        return { x, y, width, height };
-    }
-
-    function wrapText(state, value, maxWidth, style) {
-        const text = firstText(value, '');
-        if (!text) {
-            return [];
-        }
-
-        const font = resolveFont(state, style.font);
-        const paragraphs = text
-            .replace(/\r\n?/g, '\n')
-            .split('\n');
-        const lines = [];
-
-        paragraphs.forEach(function wrapParagraph(paragraph) {
-            const words = paragraph.trim().split(/\s+/).filter(Boolean);
-
-            if (words.length === 0) {
-                lines.push('');
-                return;
-            }
-
-            let currentLine = '';
-
-            words.forEach(function appendWord(word) {
-                const candidate = currentLine
-                    ? currentLine + ' ' + word
-                    : word;
-
-                if (
-                    currentLine &&
-                    safeTextWidth(font, candidate, style.size) >
-                        maxWidth
-                ) {
-                    lines.push(currentLine);
-                    currentLine = fitWord(
-                        font,
-                        word,
-                        style.size,
-                        maxWidth
-                    );
+    function wrap(s, value, fontName, size, maxWidth) {
+        const src = text(value);
+        if (!src) return [];
+        const paragraphs = src.split(/\n+/);
+        const output = [];
+        paragraphs.forEach((paragraph, pi) => {
+            const words = paragraph.split(/\s+/).filter(Boolean);
+            let line = '';
+            for (const word of words) {
+                const candidate = line ? line + ' ' + word : word;
+                if (s.ctx.measureText(candidate, fontName, size) <= maxWidth || !line) {
+                    if (s.ctx.measureText(candidate, fontName, size) <= maxWidth) {
+                        line = candidate;
+                    } else {
+                        let fragment = '';
+                        for (const ch of word) {
+                            const next = fragment + ch;
+                            if (!fragment || s.ctx.measureText(next, fontName, size) <= maxWidth) fragment = next;
+                            else { output.push(fragment); fragment = ch; }
+                        }
+                        line = fragment;
+                    }
                 } else {
-                    currentLine = candidate;
+                    output.push(line);
+                    line = word;
                 }
-            });
-
-            if (currentLine) {
-                lines.push(currentLine);
             }
+            if (line) output.push(line);
+            if (pi < paragraphs.length - 1) output.push('');
         });
-
-        return lines;
+        return output;
     }
 
-    function fitWord(font, word, size, maxWidth) {
-        if (safeTextWidth(font, word, size) <= maxWidth) {
-            return word;
+    function drawLines(s, lines, opts) {
+        let y = opts.y;
+        const style = opts.style;
+        for (const line of lines) {
+            if (line) s.ctx.text(line, { x: opts.x, y, size: style.size, font: style.font, color: opts.color || s.color(style.color) });
+            y += style.lineHeight;
         }
-
-        let result = '';
-        for (const character of Array.from(word)) {
-            const candidate = result + character;
-            if (safeTextWidth(font, candidate + '…', size) > maxWidth) {
-                break;
-            }
-            result = candidate;
-        }
-
-        return result ? result + '…' : '…';
+        return y;
     }
 
-    function ellipsizeLine(state, line, maxWidth, style) {
-        const font = resolveFont(state, style.font);
-        const suffix = '…';
-
-        if (safeTextWidth(font, line + suffix, style.size) <= maxWidth) {
-            return line + suffix;
-        }
-
-        let result = line;
-        while (
-            result.length > 0 &&
-            safeTextWidth(font, result + suffix, style.size) > maxWidth
-        ) {
-            result = result.slice(0, -1);
-        }
-
-        return result.trimEnd() + suffix;
+    function drawWrappedText(s, value, opts) {
+        const style = opts.style;
+        const lines = wrap(s, value, style.font, style.size, opts.width);
+        return drawLines(s, lines, { ...opts, lines, style });
     }
 
-    function normalizeListItems(value) {
-        if (!Array.isArray(value)) {
-            if (typeof value === 'string' && value.trim()) {
-                return [{ title: value.trim(), description: '' }];
-            }
-            return [];
-        }
-
-        return value
-            .map(function normalizeItem(item) {
-                if (typeof item === 'string') {
-                    return {
-                        title: item.trim(),
-                        description: ''
-                    };
-                }
-
-                if (!isPlainObject(item)) {
-                    return null;
-                }
-
-                const title = firstText(
-                    item.title,
-                    item.name,
-                    item.text,
-                    item.decision,
-                    item.insight,
-                    item.risk,
-                    item.task
-                );
-
-                if (!title) {
-                    return null;
-                }
-
-                return {
-                    title,
-                    description: firstText(
-                        item.description,
-                        item.details,
-                        item.detail,
-                        item.context,
-                        ''
-                    )
-                };
-            })
-            .filter(Boolean);
-    }
-
-    function normalizeTasks(value) {
-        if (!Array.isArray(value)) {
-            return [];
-        }
-
-        return value
-            .map(function normalizeTask(task) {
-                if (typeof task === 'string') {
-                    return {
-                        owner: '—',
-                        title: task.trim(),
-                        due: '—'
-                    };
-                }
-                if (!isPlainObject(task)) {
-                    return null;
-                }
-
-                const title = firstText(
-                    task.title,
-                    task.task,
-                    task.name,
-                    task.text
-                );
-
-                if (!title) {
-                    return null;
-                }
-
-                return {
-                    owner: firstText(
-                        task.owner,
-                        task.responsible,
-                        task.assignee,
-                        '—'
-                    ),
-                    title,
-                    due: firstText(
-                        task.due,
-                        task.due_date,
-                        task.dueDate,
-                        task.deadline,
-                        '—'
-                    )
-                };
-            })
-            .filter(Boolean);
-    }
-
-    function normalizeMetrics(value) {
-        if (!Array.isArray(value)) {
-            if (isPlainObject(value)) {
-                return Object.keys(value).map(function mapMetric(key) {
-                    return {
-                        label: humanizeKey(key),
-                        value: firstText(value[key], '—')
-                    };
-                });
-            }
-            return [];
-        }
-
-        return value
-            .map(function normalizeMetric(metric) {
-                if (!isPlainObject(metric)) {
-                    return null;
-                }
-
-                return {
-                    label: firstText(
-                        metric.label,
-                        metric.name,
-                        metric.title,
-                        ''
-                    ),
-                    value: firstText(
-                        metric.value,
-                        metric.metric,
-                        metric.amount,
-                        '—'
-                    )
-                };
-            })
-            .filter(function validMetric(metric) {
-                return metric && (metric.label || metric.value);
-            });
-    }
-
-    function normalizeStats(value) {
-        if (!isPlainObject(value)) {
-            return [];
-        }
-
-        return Object.keys(value)
-            .filter(function filterStat(key) {
-                return value[key] !== undefined &&
-                    value[key] !== null &&
-                    value[key] !== '';
-            })
-            .map(function mapStat(key) {
-                return {
-                    label: humanizeKey(key),
-                    value: String(value[key])
-                };
-            });
-    }
-
-    function normalizeOwners(value) {
-        if (!Array.isArray(value)) {
-            return [];
-        }
-
-        return value
-            .map(function normalizeOwner(owner) {
-                if (typeof owner === 'string') {
-                    return {
-                        name: owner.trim(),
-                        role: ''
-                    };
-                }
-
-                if (!isPlainObject(owner)) {
-                    return null;
-                }
-
-                const name = firstText(
-                    owner.name,
-                    owner.owner,
-                    owner.person,
-                    owner.responsible
-                );
-
-                if (!name) {
-                    return null;
-                }
-
-                return {
-                    name,
-                    role: firstText(
-                        owner.role,
-                        owner.area,
-                        owner.responsibility,
-                        ''
-                    )
-                };
-            })
-            .filter(Boolean);
-    }
-
-    function tokenTextStyle(state, name) {
-        const source = state.tokens.typography[name];
-        if (!isPlainObject(source)) {
-            throw createError(
-                'Design token typography.' + name + ' is missing.'
-            );
-        }
-
-        return {
-            font: source.font,
-            size: source.size,
-            lineHeight: source.lineHeight,
-            color: source.color
-        };
-    }
-
-    function textRole(state, role) {
-        if (typeof state.design.getTextStyle === 'function') {
-            return state.design.getTextStyle(role, state.density);
-        }
-
-        const hierarchy = state.tokens.typography.hierarchy;
-        const normalizedRole = Object.prototype.hasOwnProperty.call(
-            hierarchy,
-            role
-        ) ? role : 'core';
-
-        return hierarchy[normalizedRole];
-    }
-
-    function densityTokens(state) {
-        if (typeof state.design.getDensityTokens === 'function') {
-            return state.design.getDensityTokens(state.density);
-        }
-
-        const density = state.tokens.density;
-        return density[state.density] || density.regular;
-    }
-
-    function normalizeDensity(value) {
-        return typeof value === 'string' &&
-            engine.design &&
-            engine.design.TOKENS &&
-            engine.design.TOKENS.density &&
-            Object.prototype.hasOwnProperty.call(
-                engine.design.TOKENS.density,
-                value
-            )
-            ? value
-            : 'regular';
-    }
-
-    function resolveCardBorder(tokens) {
-        if (
-            isPlainObject(tokens.borders) &&
-            isPlainObject(tokens.borders.card)
-        ) {
-            return {
-                width: finiteOrDefault(tokens.borders.card.width, 0.5),
-                color: firstText(
-                    tokens.borders.card.color,
-                    'cardBorder'
-                )
-            };
-        }
-
-        if (isPlainObject(tokens.card)) {
-            return {
-                width: finiteOrDefault(tokens.card.borderWidth, 0.5),
-                color: 'cardBorder'
-            };
-        }
-
-        return {
-            width: 0.5,
-            color: 'cardBorder'
-        };
-    }
-
-    function resolveCardRadius(tokens) {
-        if (
-            isPlainObject(tokens.radius) &&
-            Number.isFinite(tokens.radius.card)
-        ) {
-            return tokens.radius.card;
-        }
-
-        if (
-            isPlainObject(tokens.radii) &&
-            Number.isFinite(tokens.radii.card)
-        ) {
-            return tokens.radii.card;
-        }
-
-        return 0;
-    }
-
-    function resolveBulletIndent(state) {
-        const bullets = state.tokens.bullets;
-        return isPlainObject(bullets) &&
-            Number.isFinite(bullets.indent)
-            ? bullets.indent
-            : 9;
-    }
-
-    function resolveBulletRadius(state) {
-        const bullets = state.tokens.bullets;
-        return isPlainObject(bullets) &&
-            Number.isFinite(bullets.radius)
-            ? bullets.radius
-            : 1.5;
-    }
-
-    function resolveIconSize(state) {
-        const icons = state.tokens.icons;
-        const base = isPlainObject(icons) &&
-            Number.isFinite(icons.size)
-            ? icons.size
-            : 10;
-
-        return base * finiteOrDefault(
-            densityTokens(state).iconScale,
-            1
-        );
-    }
-
-    function resolveIcon(title) {
-        const normalized = title.toLowerCase();
-
-        if (normalized.includes('summary')) return 'summary';
-        if (normalized.includes('metric')) return 'metrics';
-        if (normalized.includes('insight')) return 'insights';
-        if (normalized.includes('decision')) return 'decisions';
-        if (normalized.includes('risk')) return 'risks';
-        if (normalized.includes('task')) return 'tasks';
-        if (normalized.includes('architecture')) return 'architecture';
-        if (normalized.includes('owner')) return 'owners';
-        if (normalized.includes('stat')) return 'stats';
-
-        return null;
-    }
-
-    function resolveColor(state, name) {
-        const colors = state.tokens.colors;
-        const value = colors[name] || colors.body;
-
-        if (
-            !Array.isArray(value) ||
-            value.length !== 3 ||
-            !value.every(Number.isFinite)
-        ) {
-            throw createError(
-                'Invalid color token "' + name + '".'
-            );
-        }
-
-        return globalScope.PDFLib.rgb(
-            value[0],
-            value[1],
-            value[2]
-        );
-    }
-
-    function resolveFont(state, name) {
-        const familyName =
-            state.tokens.typography &&
-            state.tokens.typography.families &&
-            state.tokens.typography.families[name]
-                ? state.tokens.typography.families[name]
-                : name;
-
-        const font = state.fonts[familyName] || state.fonts[name];
-
-        if (!font || typeof font.widthOfTextAtSize !== 'function') {
-            throw createError(
-                'Font "' + familyName + '" is not available.'
-            );
-        }
-
-        return font;
-    }
-
-    function toPdfY(state, yTop) {
-        const pageHeight = getPageHeight(state.page);
-        return pageHeight - yTop;
-    }
-
-    function getPageHeight(page) {
-        if (typeof page.getSize === 'function') {
-            return page.getSize().height;
-        }
-
-        if (typeof page.getHeight === 'function') {
-            return page.getHeight();
-        }
-
-        throw createError('Unable to resolve PDF page height.');
-    }
-
-    function safeTextWidth(font, text, size) {
-        try {
-            return font.widthOfTextAtSize(String(text), size);
-        } catch (error) {
-            return String(text).length * size * 0.55;
-        }
-    }
-
-    function firstText() {
-        for (let index = 0; index < arguments.length; index += 1) {
-            const value = arguments[index];
-
-            if (value === undefined || value === null) {
-                continue;
-            }
-
-            const text = String(value).trim();
-            if (text) {
-                return text;
-            }
-        }
-
-        return '';
-    }
-
-    function humanizeKey(value) {
-        return String(value)
-            .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-            .replace(/[_-]+/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .replace(/^./, function upper(character) {
-                return character.toUpperCase();
-            });
-    }
-
-    function finiteOrZero(value) {
-        return Number.isFinite(value) ? value : 0;
-    }
-
-    function finiteOrDefault(value, fallback) {
-        return Number.isFinite(value) ? value : fallback;
-    }
-
-    function supportsRoundedRectangle() {
-        return false;
-    }
-
-    function validateDependencies() {
-        if (
-            !globalScope.PDFLib ||
-            typeof globalScope.PDFLib.rgb !== 'function'
-        ) {
-            throw createError(
-                'PDFLib.rgb() is not available.'
-            );
-        }
-
-        if (
-            !engine.design ||
-            !isPlainObject(engine.design.TOKENS)
-        ) {
-            throw createError(
-                'Design System is not initialized.'
-            );
-        }
-    }
-
-    function validateBlock(block) {
-        if (!isPlainObject(block)) {
-            throw createError('block must be an object.');
-        }
-
-        if (
-            typeof block.id !== 'string' ||
-            block.id.trim().length === 0
-        ) {
-            throw createError('block.id must be a non-empty string.');
-        }
-
-        ['x', 'y', 'width', 'height'].forEach(function validateField(field) {
-            if (!Number.isFinite(block[field])) {
-                throw createError(
-                    'block.' + field + ' must be a finite number.'
-                );
-            }
+    function normalizeList(value) {
+        if (Array.isArray(value)) return value.map(item => typeof item === 'string' ? { title:item, details:'' } : {
+            title: first(item?.title, item?.name, item?.label, item?.task, item?.decision, item?.risk),
+            details: first(item?.details, item?.description, item?.text, item?.value)
         });
+        return [];
+    }
 
-        if (block.width <= 0 || block.height <= 0) {
-            throw createError(
-                'block width and height must be greater than zero.'
-            );
+    function renderHeader(block, ctx) {
+        const s = state(block, ctx); const d = data(block); const g = block.geometry;
+        const titleStyle = s.type('reportTitle'); const metaStyle = s.type('meetingMeta');
+        const title = first(d.title, ctx.report?.title, 'Meeting Report');
+        const date = first(d.date, ctx.report?.date, ctx.report?.created_at);
+        drawSectionGlyph(s, g.x + 9, g.y + 10, 13, 'purplePrimary', 'header');
+        drawWrappedText(s, title, { x:g.x+18, y:g.y+1, width:Math.max(40,g.width-165), style:titleStyle });
+        if (date) s.ctx.text(date, { x:g.x+18, y:g.y+27, size:metaStyle.size, font:metaStyle.font, color:s.color(metaStyle.color) });
+        // Golden decorative mountain: vector silhouette, intentionally decorative only.
+        const mx = g.x + g.width - 110, my = g.y + 3;
+        const purple = s.color('purplePrimary'), soft = s.color('purpleSoft');
+        s.ctx.line({start:{x:mx,y:my+38},end:{x:mx+28,y:my+13},thickness:2,color:soft});
+        s.ctx.line({start:{x:mx+28,y:my+13},end:{x:mx+52,y:my+31},thickness:2,color:soft});
+        s.ctx.line({start:{x:mx+52,y:my+31},end:{x:mx+79,y:my+7},thickness:2,color:purple});
+        s.ctx.line({start:{x:mx+79,y:my+7},end:{x:mx+106,y:my+38},thickness:2,color:purple});
+    }
+
+    function renderStats(block, ctx) {
+        const s = state(block, ctx); const d = data(block); const g = block.geometry;
+        const label = s.type('statLabel'), value = s.type('statValue');
+        let entries = [];
+        if (Array.isArray(d)) entries = d;
+        else if (d && typeof d === 'object') {
+            const aliases = [
+                ['Participants', d.participants ?? d.participantCount ?? ctx.report?.participants?.length],
+                ['Tasks', d.tasks ?? d.taskCount ?? ctx.report?.tasks?.length],
+                ['Decisions', d.decisions ?? d.decisionCount ?? ctx.report?.decisions?.length],
+                ['Risks', d.risks ?? d.riskCount ?? ctx.report?.risks?.length]
+            ];
+            entries = aliases.filter(e => e[1] !== undefined && e[1] !== null && e[1] !== '');
+        }
+        let x = g.x + 8; const cy = g.y + g.height/2;
+        entries.forEach((entry, i) => {
+            const name = first(entry.label, entry.name, entry[0]); const val = entry.value ?? entry.count ?? entry[1] ?? '';
+            s.ctx.circle({x:x+4,y:cy,radius:2.7,stroke:s.color('purplePrimary'),borderWidth:.8});
+            x += 10;
+            s.ctx.text(name, {x,y:g.y+3,size:label.size,font:label.font,color:s.color(label.color)});
+            x += s.ctx.measureText(name,label.font,label.size)+5;
+            s.ctx.text(String(val), {x,y:g.y+2.7,size:value.size,font:value.font,color:s.color(value.color)});
+            x += s.ctx.measureText(String(val),value.font,value.size)+12;
+            if (i < entries.length-1) { s.ctx.line({start:{x,y:g.y+2},end:{x,y:g.y+g.height-2},thickness:.35,color:s.color('dividerDefault')}); x += 10; }
+        });
+    }
+
+    function renderSummary(block, ctx) {
+        const s=state(block,ctx), g=block.geometry, d=data(block); card(s,g); const y=sectionHeader(s,TITLES.summary,ACCENT.summary,g);
+        const style=s.type('body'); const value=typeof d==='string'?d:first(d.summary,d.text,d.value,d.description);
+        drawWrappedText(s,value,{x:g.x+s.spacing.cardPadX,y,width:g.width-s.spacing.cardPadX*2,style});
+    }
+
+    function normalizeMetrics(d) {
+        const source = Array.isArray(d) ? d : asArray(d.metrics || d.items);
+        return source.map(m => typeof m==='string'?{label:m,value:''}:{label:first(m.label,m.title,m.name),value:first(m.value,m.metric,m.amount)});
+    }
+
+    function renderMetrics(block, ctx) {
+        const s=state(block,ctx),g=block.geometry,d=data(block); card(s,g); const top=sectionHeader(s,TITLES.metrics,ACCENT.metrics,g);
+        const metrics=normalizeMetrics(d); if(!metrics.length) return;
+        const innerX=g.x+s.spacing.cardPadX, innerW=g.width-s.spacing.cardPadX*2;
+        const primaryCount=Math.min(metrics.length,8); const sideCount=Math.max(0,metrics.length-primaryCount);
+        const sideW=sideCount?Math.min(92,innerW*.23):0; const sideGap=sideCount?4:0; const primaryW=innerW-sideW-sideGap;
+        const cols=Math.min(4,Math.max(1,primaryCount)); const rows=Math.ceil(primaryCount/cols);
+        const gapX=3,gapY=3.5; const cardW=(primaryW-gapX*(cols-1))/cols; const availableH=Math.max(20,g.y+g.height-s.spacing.cardPadY-top); const cardH=(availableH-gapY*(rows-1))/Math.max(rows,1);
+        const label=s.type('metricLabel'), val=s.type('metricValue');
+        metrics.slice(0,primaryCount).forEach((m,i)=>{
+            const row=Math.floor(i/cols),col=i%cols,x=innerX+col*(cardW+gapX),y=top+row*(cardH+gapY);
+            s.ctx.rect({x,y,width:cardW,height:cardH,fill:s.color('cardBg'),stroke:s.color('borderDefault'),borderWidth:.5,radius:s.tokens.shapes.metricRadius[s.density]});
+            s.ctx.circle({x:x+8,y:y+9,radius:2.2,fill:s.color('purpleSoft'),stroke:s.color('purplePrimary'),borderWidth:.5});
+            drawWrappedText(s,m.label,{x:x+5,y:y+17,width:cardW-10,style:label});
+            s.ctx.text(m.value,{x:x+5,y:y+cardH-val.lineHeight-5,size:val.size,font:val.font,color:s.color(val.color)});
+        });
+        if(sideCount){
+            const sx=innerX+primaryW+sideGap; const sideStyle=s.type('metricSideLabel'),sideVal=s.type('metricSideValue'); const h=(availableH-3.5*(sideCount-1))/sideCount;
+            metrics.slice(primaryCount).forEach((m,j)=>{const y=top+j*(h+3.5);s.ctx.rect({x:sx,y,width:sideW,height:h,fill:s.color('mutedSurface'),stroke:s.color('borderDefault'),borderWidth:.5,radius:3});s.ctx.text(m.label,{x:sx+4,y:y+4,size:sideStyle.size,font:sideStyle.font,color:s.color(sideStyle.color)});const vw=s.ctx.measureText(m.value,sideVal.font,sideVal.size);s.ctx.text(m.value,{x:sx+sideW-vw-4,y:y+4,size:sideVal.size,font:sideVal.font,color:s.color(sideVal.color)});});
         }
     }
 
-    function validateRenderContext(renderContext) {
-        if (!isPlainObject(renderContext)) {
-            throw createError(
-                'renderContext must be an object.'
-            );
-        }
-
-        if (
-            !renderContext.page ||
-            typeof renderContext.page.drawText !== 'function' ||
-            typeof renderContext.page.drawRectangle !== 'function'
-        ) {
-            throw createError(
-                'renderContext.page must be a PDFLib page.'
-            );
-        }
-
-        if (!isPlainObject(renderContext.fonts)) {
-            throw createError(
-                'renderContext.fonts must be an object.'
-            );
-        }
+    function renderListBlock(block,ctx,title,accent){
+        const s=state(block,ctx),g=block.geometry,d=data(block);card(s,g);let y=sectionHeader(s,title,accent,g);const items=normalizeList(Array.isArray(d)?d:(d.items||d[block.id]||[]));
+        const strong=s.type('listStrong'),body=s.type('listBody');const contentX=g.x+s.spacing.cardPadX;
+        items.forEach((item,i)=>{const diameter=s.tokens.badges.diameter[s.density];const cy=y+diameter/2;s.ctx.circle({x:contentX+diameter/2,y:cy,radius:diameter/2,fill:s.color(accent),borderWidth:0});const n=String(i+1);const nw=s.ctx.measureText(n,'bold',s.type('badgeNumber').size);const ns=s.type('badgeNumber');s.ctx.text(n,{x:contentX+diameter/2-nw/2,y:y+.4,size:ns.size,font:ns.font,color:s.color('white')});const tx=contentX+diameter+6,tw=g.x+g.width-s.spacing.cardPadX-tx;let ty=y;if(item.title){ty=drawWrappedText(s,item.title,{x:tx,y:ty,width:tw,style:strong});}if(item.details){ty=drawWrappedText(s,item.details,{x:tx,y:ty,width:tw,style:body});}y=Math.max(ty,y+diameter)+s.spacing.listItemGap;});
     }
 
-    function isPlainObject(value) {
-        if (
-            value === null ||
-            typeof value !== 'object' ||
-            Array.isArray(value)
-        ) {
-            return false;
-        }
+    function renderInsights(b,c){renderListBlock(b,c,TITLES.insights,ACCENT.insights)}
+    function renderDecisions(b,c){renderListBlock(b,c,TITLES.decisions,ACCENT.decisions)}
+    function renderRisks(b,c){renderListBlock(b,c,TITLES.risks,ACCENT.risks)}
 
-        const prototype = Object.getPrototypeOf(value);
-        return prototype === Object.prototype ||
-            prototype === null;
+    function normalizeTasks(d){const src=Array.isArray(d)?d:asArray(d.tasks||d.items);return src.map(t=>typeof t==='string'?{task:t,owner:'',due:''}:{task:first(t.task,t.title,t.description),owner:first(t.owner,t.assignee),due:first(t.due_date,t.dueDate,t.deadline,t.due)});}
+    function renderTasks(block,ctx){
+        const s=state(block,ctx),g=block.geometry,d=data(block);card(s,g);let y=sectionHeader(s,TITLES.tasks,ACCENT.tasks,g);const rows=normalizeTasks(d);const header=s.type('taskHeader'),body=s.type('taskCell'),strong=s.type('taskCellStrong');
+        const x0=g.x+s.spacing.cardPadX, total=g.width-s.spacing.cardPadX*2;const spec=[['#',.05],['Task',.65],['Owner',.195],['Due Date',.105]];let x=x0;
+        s.ctx.rect({x:x0,y,width:total,height:10,fill:s.color('mutedSurface'),stroke:s.color('borderDefault'),borderWidth:.35,radius:0});
+        spec.forEach(([name,r])=>{const w=total*r;s.ctx.text(name,{x:x+2,y:y+2,size:header.size,font:header.font,color:s.color(header.color)});x+=w;});y+=10;
+        rows.forEach((row,i)=>{const widths=spec.map(sx=>total*sx[1]);const taskLines=wrap(s,row.task,body.font,body.size,widths[1]-6);const ownerLines=wrap(s,row.owner,strong.font,strong.size,widths[2]-6);const dueLines=wrap(s,row.due,body.font,body.size,widths[3]-6);const lineCount=Math.max(1,taskLines.length,ownerLines.length,dueLines.length);const h=Math.max(9,lineCount*body.lineHeight+s.spacing.tableRowPadY*2);s.ctx.line({start:{x:x0,y:y+h},end:{x:x0+total,y:y+h},thickness:.35,color:s.color('borderDefault')});let cx=x0;s.ctx.text(String(i+1),{x:cx+3,y:y+s.spacing.tableRowPadY,size:body.size,font:body.font,color:s.color(body.color)});cx+=widths[0];drawLines(s,taskLines,{x:cx+3,y:y+s.spacing.tableRowPadY,style:body});cx+=widths[1];drawLines(s,ownerLines,{x:cx+3,y:y+s.spacing.tableRowPadY,style:strong});cx+=widths[2];if(row.due){const pillW=Math.min(widths[3]-4,s.ctx.measureText(row.due,body.font,body.size)+6);s.ctx.rect({x:cx+2,y:y+Math.max(1,(h-8)/2),width:pillW,height:8,fill:s.color('purpleSoft'),stroke:s.color('purpleSoft'),borderWidth:0,radius:3});s.ctx.text(row.due,{x:cx+5,y:y+Math.max(1,(h-8)/2)+1.2,size:body.size,font:body.font,color:s.color('purplePrimary')});}y+=h;});
     }
 
-    function createError(message) {
-        return new Error(
-            MODULE_NAME + ': ' + message
-        );
+    function architectureSections(d){if(Array.isArray(d))return d; if(Array.isArray(d.sections))return d.sections; return [];}
+    function renderArchitecture(block,ctx){
+        const s=state(block,ctx),g=block.geometry,d=data(block);card(s,g);let top=sectionHeader(s,TITLES.architecture,ACCENT.architecture,g);const sections=architectureSections(d);if(!sections.length)return;const pad=s.spacing.architecturePad,innerX=g.x+pad,innerW=g.width-pad*2,gap=s.tokens.architecture.sectionGap,sw=(innerW-gap*(sections.length-1))/sections.length;const no=s.type('architectureSectionNo'),st=s.type('architectureSectionTitle'),it=s.type('architectureItemTitle'),desc=s.type('architectureDescription');
+        sections.forEach((sec,i)=>{const x=innerX+i*(sw+gap),accent=s.tokens.architecture.accentSequence[i%s.tokens.architecture.accentSequence.length];s.ctx.rect({x,y:top,width:sw,height:Math.max(10,g.y+g.height-pad-top),fill:s.color('cardBg'),stroke:s.color('borderDefault'),borderWidth:.5,radius:3});s.ctx.text(String(i+1),{x:x+5,y:top+4,size:no.size,font:no.font,color:s.color(accent)});drawWrappedText(s,first(sec.title,sec.name,`Section ${i+1}`),{x:x+15,y:top+4,width:sw-20,style:st,color:s.color(accent)});let y=top+st.lineHeight+9;asArray(sec.items).forEach(item=>{const label=typeof item==='string'?item:first(item.title,item.name,item.label);const details=typeof item==='string'?'':first(item.description,item.details,item.text);s.ctx.circle({x:x+7,y:y+3,radius:1.7,fill:s.color(accent),borderWidth:0});let yy=drawWrappedText(s,label,{x:x+12,y,width:sw-17,style:it});if(details)yy=drawWrappedText(s,details,{x:x+12,y:yy,width:sw-17,style:desc});y=yy+s.spacing.architectureItemGap;});if(i<sections.length-1){const ax=x+sw+1.2,ay=top+12;s.ctx.line({start:{x:ax,y:ay},end:{x:ax+gap-2.4,y:ay},thickness:.6,color:s.tokens.architecture.connectorColor});s.ctx.line({start:{x:ax+gap-2.4,y:ay},end:{x:ax+gap-4.2,y:ay-1.5},thickness:.6,color:s.tokens.architecture.connectorColor});s.ctx.line({start:{x:ax+gap-2.4,y:ay},end:{x:ax+gap-4.2,y:ay+1.5},thickness:.6,color:s.tokens.architecture.connectorColor});}});
     }
 
-    engine.blockRenderers = Object.freeze({
-        version: VERSION,
-        header: renderHeader,
-        stats: renderStats,
-        summary: renderSummary,
-        metrics: renderMetrics,
-        insights: renderInsights,
-        decisions: renderDecisions,
-        risks: renderRisks,
-        tasks: renderTasks,
-        architecture: renderArchitecture,
-        owners: renderOwners,
-        footer: renderFooter
-    });
+    function normalizeOwners(d){const src=Array.isArray(d)?d:asArray(d.owners||d.items);return src.map(o=>typeof o==='string'?{name:o,role:''}:{name:first(o.name,o.owner,o.title),role:first(o.role,o.position)});}
+    function initials(name){return text(name).split(/\s+/).filter(Boolean).slice(0,2).map(p=>p[0]?.toUpperCase()||'').join('');}
+    function renderOwners(block,ctx){const s=state(block,ctx),g=block.geometry,d=data(block);const owners=normalizeOwners(d);const title=s.type('blockTitle'),name=s.type('ownerName'),role=s.type('ownerRole'),init=s.type('ownerInitials');const x0=g.x+8;drawSectionGlyph(s,x0+5,g.y+8,10,'purplePrimary','owners');s.ctx.text('Owners',{x:x0+14,y:g.y+2,size:title.size,font:title.font,color:s.color('purplePrimary')});let x=x0+62;owners.forEach((o,i)=>{const cy=g.y+11,r=s.tokens.owners.avatarDiameter/2;s.ctx.circle({x:x+r,y:cy,radius:r,fill:s.color('purpleSoft'),borderWidth:0});const ii=initials(o.name),iw=s.ctx.measureText(ii,init.font,init.size);s.ctx.text(ii,{x:x+r-iw/2,y:cy-init.size/2-.4,size:init.size,font:init.font,color:s.color('purplePrimary')});const tx=x+s.tokens.owners.avatarDiameter+4;s.ctx.text(o.name,{x:tx,y:g.y+4,size:name.size,font:name.font,color:s.color(name.color)});if(o.role)s.ctx.text(o.role,{x:tx,y:g.y+12,size:role.size,font:role.font,color:s.color(role.color)});const w=Math.max(44,s.ctx.measureText(o.name,name.font,name.size)+s.tokens.owners.avatarDiameter+10);x+=w;if(i<owners.length-1){s.ctx.line({start:{x:x,y:g.y+3},end:{x:x,y:g.y+19},thickness:.35,color:s.color('dividerDefault')});x+=8;}});}
 
-    globalScope.ExecutiveSlideEngine = engine;
+    function renderFooter(block,ctx){const s=state(block,ctx),g=block.geometry,d=data(block);const ft=s.type('footer'),brand=s.type('brandLink');const label=first(d.text,'Generated by MeetMind AI');const link='meetmind.ai';const lw=s.ctx.measureText(label,ft.font,ft.size),bw=s.ctx.measureText(link,brand.font,brand.size);const x=g.x+g.width-lw-bw-24;s.ctx.text(label,{x,y:g.y+7,size:ft.size,font:ft.font,color:s.color(ft.color)});const divX=x+lw+8;s.ctx.line({start:{x:divX,y:g.y+3},end:{x:divX,y:g.y+18},thickness:.35,color:s.color('dividerDefault')});s.ctx.text(link,{x:divX+9,y:g.y+7,size:brand.size,font:brand.font,color:s.color(brand.color)});s.ctx.line({start:{x:divX+9,y:g.y+7+brand.size+1},end:{x:divX+9+bw,y:g.y+7+brand.size+1},thickness:.4,color:s.color('purplePrimary')});}
 
-})(
-    typeof window !== 'undefined'
-        ? window
-        : globalThis
-);
+    const api=Object.freeze({version:VERSION,header:renderHeader,stats:renderStats,summary:renderSummary,metrics:renderMetrics,insights:renderInsights,decisions:renderDecisions,risks:renderRisks,tasks:renderTasks,architecture:renderArchitecture,owners:renderOwners,footer:renderFooter});
+    engine.blockRenderers=api;globalScope.ExecutiveSlideEngine=engine;
+    if(typeof module!=='undefined'&&module.exports)module.exports=api;
+})(typeof globalThis!=='undefined'?globalThis:window);
