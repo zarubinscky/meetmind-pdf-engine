@@ -311,53 +311,58 @@
             .replace(/\b\w/g, char => char.toUpperCase());
     }
 
-    function wrapText(text, font, size, maxWidth) {
-        const words = cleanText(text).split(' ').filter(Boolean);
-        if (words.length === 0) return [];
-
-        const lines = [];
-        let current = '';
-
-        for (const word of words) {
-            const candidate = current ? `${current} ${word}` : word;
-
-            if (estimateWidth(candidate, size) <= maxWidth) {
-                current = candidate;
-                continue;
-            }
-
-            if (current) {
-                lines.push(current);
-            }
-
-            if (estimateWidth(word, size) <= maxWidth) {
-                current = word;
-                continue;
-            }
-
-            let fragment = '';
-            for (const char of word) {
-                const next = fragment + char;
-                function estimateWidth(text, fontSize) {
-
+    function estimateWidth(text, fontSize) {
     return String(text).length * fontSize * 0.56;
-
 }
-                    fragment = next;
-                } else {
-                    if (fragment) lines.push(fragment);
-                    fragment = char;
-                }
-            }
-            current = fragment;
+
+function wrapText(text, font, size, maxWidth) {
+    const words = cleanText(text).split(' ').filter(Boolean);
+
+    if (words.length === 0) return [];
+
+    const lines = [];
+    let current = '';
+
+    for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word;
+
+        if (estimateWidth(candidate, size) <= maxWidth) {
+            current = candidate;
+            continue;
         }
 
         if (current) {
             lines.push(current);
         }
 
-        return lines;
+        if (estimateWidth(word, size) <= maxWidth) {
+            current = word;
+            continue;
+        }
+
+        let fragment = '';
+
+        for (const char of word) {
+            const next = fragment + char;
+
+            if (estimateWidth(next, size) <= maxWidth) {
+                fragment = next;
+            } else {
+                if (fragment) {
+                    lines.push(fragment);
+                }
+
+                fragment = char;
+            }
+        }
+        current = fragment;
     }
+
+    if (current) {
+        lines.push(current);
+    }
+    return lines;
+}
 
     function geometryToPdf(geometry, layoutSize, pdfSize) {
         const scaleX = pdfSize.width / layoutSize.width;
