@@ -25,27 +25,44 @@
     const STAT_ICONS = Object.freeze({Participants:'users',Tasks:'clipboard-list',Decisions:'circle-check',Risks:'triangle-alert'});
     const METRIC_ICONS = Object.freeze(['target','file-text','box','users-round','network','triangle-alert','calendar-days','layers']);
 
+    // 6D: normalize every Lucide node through the SAME SVG-path pipeline.
+    // Mixing ctx.circle/ctx.line (page-space Y inversion) with drawSvgPath
+    // (SVG local coordinates) caused compound icons to split and drift vertically.
+    function nodePath(tag,a){
+        const n=v=>Number(v||0);
+        if(tag==='path') return String(a.d||'');
+        if(tag==='line') return `M ${n(a.x1)} ${n(a.y1)} L ${n(a.x2)} ${n(a.y2)}`;
+        if(tag==='polyline'){
+            const pts=String(a.points||'').trim().split(/\s+/).map(q=>q.split(',').map(Number)).filter(p=>p.length===2&&p.every(Number.isFinite));
+            if(!pts.length)return '';
+            return `M ${pts[0][0]} ${pts[0][1]} `+pts.slice(1).map(p=>`L ${p[0]} ${p[1]}`).join(' ');
+        }
+        if(tag==='rect'){
+            const x=n(a.x), y=n(a.y), w=n(a.width), h=n(a.height);
+            // Rounded corners are intentionally omitted at icon scale; geometry stays canonical.
+            return `M ${x} ${y} H ${x+w} V ${y+h} H ${x} Z`;
+        }
+        if(tag==='circle'){
+            const cx=n(a.cx), cy=n(a.cy), r=n(a.r);
+            // Two arcs expressed as cubic Beziers; keeps circles in the same local 24x24 viewport.
+            const k=0.5522847498307936, c=r*k;
+            return `M ${cx+r} ${cy} C ${cx+r} ${cy+c} ${cx+c} ${cy+r} ${cx} ${cy+r} C ${cx-c} ${cy+r} ${cx-r} ${cy+c} ${cx-r} ${cy} C ${cx-r} ${cy-c} ${cx-c} ${cy-r} ${cx} ${cy-r} C ${cx+c} ${cy-r} ${cx+r} ${cy-c} ${cx+r} ${cy} Z`;
+        }
+        if(tag==='ellipse'){
+            const cx=n(a.cx), cy=n(a.cy), rx=n(a.rx), ry=n(a.ry), k=0.5522847498307936;
+            return `M ${cx+rx} ${cy} C ${cx+rx} ${cy+ry*k} ${cx+rx*k} ${cy+ry} ${cx} ${cy+ry} C ${cx-rx*k} ${cy+ry} ${cx-rx} ${cy+ry*k} ${cx-rx} ${cy} C ${cx-rx} ${cy-ry*k} ${cx-rx*k} ${cy-ry} ${cx} ${cy-ry} C ${cx+rx*k} ${cy-ry} ${cx+rx} ${cy-ry*k} ${cx+rx} ${cy} Z`;
+        }
+        return '';
+    }
+
     function icon(ctx,name,x,y,size,color){
         const registry=global.ExecutiveSlideEngine?.icons;
         const def=registry?.get?.(name);
-        if(!def)return false;
-        const k=size/24;
-        const X=v=>x+Number(v||0)*k, Y=v=>y+Number(v||0)*k;
+        if(!def||typeof ctx.svgPath!=='function')return false;
+        const stroke=Math.max(.48,Math.min(.72,size*.055));
         def.nodes.forEach(([tag,a])=>{
-            if(tag==='path' && a.d){
-                if(typeof ctx.svgPath==='function') {
-                    ctx.svgPath(a.d,{x,y,size,color,stroke:color,borderWidth:.65});
-                }
-            } else if(tag==='circle'){
-                ctx.circle({x:X(a.cx),y:Y(a.cy),radius:Number(a.r||0)*k,stroke:color,borderWidth:.65});
-            } else if(tag==='line'){
-                ctx.line({x1:X(a.x1),y1:Y(a.y1),x2:X(a.x2),y2:Y(a.y2),color,thickness:.65});
-            } else if(tag==='polyline'){
-                const pts=String(a.points||'').trim().split(/\s+/).map(q=>q.split(',').map(Number));
-                for(let i=1;i<pts.length;i++)ctx.line({x1:X(pts[i-1][0]),y1:Y(pts[i-1][1]),x2:X(pts[i][0]),y2:Y(pts[i][1]),color,thickness:.65});
-            } else if(tag==='rect'){
-                ctx.rect({x:X(a.x),y:Y(a.y),width:Number(a.width||0)*k,height:Number(a.height||0)*k,stroke:color,borderWidth:.65});
-            }
+            const d=nodePath(tag,a||{});
+            if(d)ctx.svgPath(d,{x,y,size,stroke:color,borderWidth:stroke});
         });
         return true;
     }
@@ -383,7 +400,7 @@
     }
 
     host.blockRenderers=Object.freeze({
-        version:'1.3.0-golden-icon-system-6C',
+        version:'1.4.0-golden-icon-normalization-6D',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
