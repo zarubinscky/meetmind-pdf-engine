@@ -103,29 +103,28 @@
 
     dependenciesPromise = (async () => {
         const [
-            compositionModule,
-            drawingModule,
-            pdfLib,
-            fontkit
-        ] = await Promise.all([
-            import(
-                ENGINE_BASE +
-                'Composition_Engine/composition-engine.js'
-            ),
+    compositionModule,
+    drawingModule,
+    pdfLib,
+    fontkit
+] = await Promise.all([
+    import(
+        ENGINE_BASE +
+        'Composition_Engine/composition-engine.js'
+    ),
 
-            import(
-                ENGINE_BASE +
-                'drawing/drawing-surface.js'
-            ),
+    import(
+        ENGINE_BASE +
+        'drawing/drawing-surface.js'
+    ),
 
-            ensurePdfLib(),
-            ensureFontkit(),
-
-            import(
-                ENGINE_BASE +
-                'Layout_Engine/layout-engine.js'
-            )
-        ]);
+    ensurePdfLib(),
+    ensureFontkit(),
+    loadClassicScript(
+        ENGINE_BASE +
+        'Layout_Engine/layout-engine.js'
+    )
+]);
 
         const compose =
             compositionModule.composeExecutiveReport ||
