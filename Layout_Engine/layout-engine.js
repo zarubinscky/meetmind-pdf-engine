@@ -307,6 +307,8 @@
     }
 
     function buildPage(blocks, density, options) {
+        const golden = options?.tokens?.goldenReference?.regions || {};
+        const goldenH = (name, fallback) => Number(golden?.[name]?.h ?? fallback);
         const tokens = options?.tokens || {};
         const s = spacing(tokens, density);
         const env = { tokens, density, s, measure: makeMeasure(options) };
@@ -324,8 +326,8 @@
             y += h + s.sectionGap;
         }
 
-        full('header', 34);
-        full('meetingStats', 18);
+        full('header', goldenH('header', 34));
+        full('meetingStats', goldenH('statistics', 18));
 
         const summary = map.get('executiveSummary');
         const metrics = map.get('keyMetrics');
@@ -475,7 +477,7 @@
     }
 
     global.MeetMindLayoutEngine=Object.freeze({
-        version:'golden-1.1.0-real-measurement',
+        version:'golden-1.1.1-structural-fidelity',
         PAGE,layout
     });
 })(window);
