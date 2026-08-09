@@ -45,6 +45,8 @@
         })
     });
 
+    let CURRENT_REPORT = null;
+
     const ORDER = [
         'header', 'meetingStats', 'executiveSummary', 'keyMetrics',
         'insights', 'decisions', 'risks', 'tasks', 'architecture',
@@ -155,8 +157,17 @@
         return mode.padY * 2 + mode.blockTitleLine + mode.lineGap;
     }
 
-    function measureList(block, width, mode, tm) {
-        const items = arrayOf(block);
+    function measureList(block, width, mode, tm, report = null) {
+        let items = arrayOf(block);
+        // Composition may intentionally carry only block identity/visibility while
+        // Renderer reads the actual list from report_json. Measurement MUST use
+        // the same source or allocated geometry will be shorter than rendered content.
+        if (!items.length && report) {
+            const key = idOf(block);
+            if (['insights','decisions','risks'].includes(key) && Array.isArray(report[key])) {
+                items = report[key];
+            }
+        }
         const inner = Math.max(40, width - mode.padX * 2 - 18);
         let h = blockChrome(mode);
         for (const item of items) {
@@ -267,12 +278,12 @@
             case 'keyMetrics': return measureMetrics(block, width, mode, tm);
             case 'insights':
             case 'decisions':
-            case 'risks': return measureList(block, width, mode, tm);
+            case 'risks': return measureList(block, width, mode, tm, CURRENT_REPORT);
             case 'tasks': return measureTasks(block, width, mode, tm);
             case 'architecture': return measureArchitecture(block, width, mode, tm);
             case 'owners': return measureOwners(block, width, mode, tm);
             case 'footer': return 28;
-            default: return measureList(block, width, mode, tm);
+            default: return measureList(block, width, mode, tm, CURRENT_REPORT);
         }
     }
 
@@ -467,6 +478,7 @@
     }
 
     function layout(composition, options = {}) {
+        CURRENT_REPORT = options.report || null;
         const tm = createTextMeasurer(options);
         const blocks = getBlocks(composition)
             .filter(Boolean)
@@ -521,7 +533,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.6.1-6E2a-real-measurement',
+        version: 'golden-1.6.2-6E4-source-parity',
         PAGE,
         MODES,
         layout
