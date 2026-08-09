@@ -475,7 +475,7 @@
 
 
     host.blockRenderers=Object.freeze({
-        version:'1.5.0-golden-composition-6E',
+        version:'1.5.1-golden-composition-6E1',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
