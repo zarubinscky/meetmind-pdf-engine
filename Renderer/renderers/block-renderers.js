@@ -63,7 +63,7 @@
         // 6E: normalize Lucide's 24x24 viewport to the visual top-left anchor.
         // pdf-lib's SVG path origin behaves differently from text/rect top-left
         // coordinates, so the visual glyph needs one viewport-height correction.
-        const drawY = y;
+        const drawY = y - size * 0.78;
         const stroke=Math.max(.48,Math.min(.72,size*.055));
 
         def.nodes.forEach(([tag,a])=>{
@@ -498,7 +498,7 @@
 
 
     host.blockRenderers=Object.freeze({
-        version:'1.5.0-golden-composition-6E',
+        version:'1.5.1-golden-6E5-icons-restored',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
