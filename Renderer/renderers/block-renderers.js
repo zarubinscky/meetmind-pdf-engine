@@ -63,7 +63,7 @@
         // 6E: normalize Lucide's 24x24 viewport to the visual top-left anchor.
         // pdf-lib's SVG path origin behaves differently from text/rect top-left
         // coordinates, so the visual glyph needs one viewport-height correction.
-        const drawY = y - size * 0.78;
+        const drawY = y;
         const stroke=Math.max(.48,Math.min(.72,size*.055));
 
         def.nodes.forEach(([tag,a])=>{
@@ -185,19 +185,42 @@
         const h=Math.floor(total/60), m=total%60;
         return h?`${h}:${String(m).padStart(2,'0')}`:`${m} мин`;
     }
+    function formatClock(value){
+        const raw=clean(value);
+        if(!raw)return '';
+        const d=new Date(raw);
+        if(!Number.isNaN(d.getTime())){
+            try{return new Intl.DateTimeFormat('ru-RU',{hour:'2-digit',minute:'2-digit',hour12:false}).format(d);}
+            catch{}
+        }
+        const m=raw.match(/(?:^|\s)([0-2]?\d:[0-5]\d)(?:\s|$)/);
+        return m?m[1]:'';
+    }
+    function meetingTimeRange(r){
+        const start=r.started_at||r.startedAt||r.start_time||r.startTime||r.meeting?.started_at||r.metadata?.started_at;
+        const end=r.ended_at||r.endedAt||r.end_time||r.endTime||r.meeting?.ended_at||r.metadata?.ended_at;
+        const a=formatClock(start), b=formatClock(end);
+        return a&&b?`${a} – ${b}`:'';
+    }
+
     function renderHeader(block,ctx){
         const r=ctx.report||{}, g=block.geometry;
         const title=clean(r.title||r.meeting_title||r.meetingTitle||'Meeting Report');
         const date=formatMeetingDate(
-            r.date||r.meeting_date||r.meetingDate||r.created_at||r.createdAt||
-            r.metadata?.date||r.meeting?.date||r.meeting?.created_at||''
+            r.date||r.meeting_date||r.meetingDate||r.meeting_datetime||r.meetingDateTime||
+            r.started_at||r.startedAt||r.start_time||r.startTime||r.created_at||r.createdAt||
+            r.metadata?.date||r.metadata?.meeting_date||r.metadata?.started_at||
+            r.meeting?.date||r.meeting?.meeting_date||r.meeting?.started_at||r.meeting?.created_at||''
         );
-        const explicitTime=clean(r.time||r.meeting_time||r.meetingTime||r.metadata?.time||'');
+        const explicitTime=clean(
+            r.time||r.meeting_time||r.meetingTime||r.time_range||r.timeRange||
+            r.metadata?.time||r.metadata?.time_range||r.meeting?.time||r.meeting?.time_range||''
+        );
         const duration=formatDuration(
             r.duration_seconds||r.durationSeconds||r.stats?.duration_seconds||
             r.metadata?.duration_seconds||r.meeting?.duration_seconds
         );
-        const time=explicitTime||duration;
+        const time=explicitTime||meetingTimeRange(r)||duration;
         const titleS=style(ctx,'reportTitle',{font:'bold',size:15,lineHeight:18.5,color:'textPrimary'});
         const metaS=style(ctx,'meetingMeta',{font:'medium',size:7.2,lineHeight:8.6,color:'textSecondary'});
         const left=g.x+9;
