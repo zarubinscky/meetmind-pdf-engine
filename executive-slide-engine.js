@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.2.0-golden-visual-6B';
+    const ENGINE_VERSION = '1.2.1-golden-6E2-root-cause';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.0.0';
+    const CACHE_VERSION = 'golden-1.2.1-6E2';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
@@ -30,7 +30,6 @@
         drawingSurface: 'drawing/drawing-surface.js',
         renderContext: 'core/render-context.js',
         designSystem: 'Renderer/design-system.js',
-        icons: 'Renderer/icons.js',
         blockRenderers: 'Renderer/renderers/block-renderers.js',
         renderer: 'Renderer/renderer.js'
     });
@@ -245,6 +244,67 @@
         return Object.freeze(map);
     }
 
+
+    function ensureServiceBlocks(compositionResult, report, options = {}) {
+        const sourceBlocks = Array.isArray(compositionResult?.blocks)
+            ? compositionResult.blocks
+            : Array.isArray(compositionResult?.pages)
+                ? compositionResult.pages.flatMap(page =>
+                    Array.isArray(page.blocks) ? page.blocks : []
+                )
+                : [];
+
+        const blocks = sourceBlocks.slice();
+        const ids = new Set(blocks.map(block => block?.id || block?.type));
+
+        if (!ids.has('header')) {
+            blocks.unshift(Object.freeze({
+                id: 'header',
+                type: 'header',
+                data: Object.freeze({})
+            }));
+        }
+
+        const normalizedVisibility = normalizeVisibility(options);
+        const statsExplicitlyDisabled = normalizedVisibility.meetingStats === false;
+
+        if (!statsExplicitlyDisabled &&
+            !ids.has('meetingStats') &&
+            !ids.has('stats')) {
+            const stats = Object.freeze({
+                participants: Array.isArray(report?.participants)
+                    ? report.participants.length
+                    : Number(report?.participants_count || 0),
+                tasks: Array.isArray(report?.tasks)
+                    ? report.tasks.length
+                    : Array.isArray(report?.action_items)
+                        ? report.action_items.length
+                        : Number(report?.tasks_count || 0),
+                decisions: Array.isArray(report?.decisions)
+                    ? report.decisions.length
+                    : Number(report?.decisions_count || 0),
+                risks: Array.isArray(report?.risks)
+                    ? report.risks.length
+                    : Number(report?.risks_count || 0)
+            });
+
+            const headerIndex = blocks.findIndex(block =>
+                (block?.id || block?.type) === 'header'
+            );
+
+            blocks.splice(Math.max(0, headerIndex + 1), 0, Object.freeze({
+                id: 'meetingStats',
+                type: 'meetingStats',
+                data: stats
+            }));
+        }
+
+        return Object.freeze({
+            ...compositionResult,
+            blocks: Object.freeze(blocks)
+        });
+    }
+
     function stampResolvedDensity(layoutResult) {
         const density = layoutResult.density || 'regular';
 
@@ -289,7 +349,6 @@
             // Load browser-global subsystems in dependency order.
             await loadClassicScript(engineUrl(PATHS.layout));
             await loadClassicScript(engineUrl(PATHS.designSystem));
-            await loadClassicScript(engineUrl(PATHS.icons));
             await loadClassicScript(engineUrl(PATHS.blockRenderers));
             await loadClassicScript(engineUrl(PATHS.renderer));
 
@@ -404,16 +463,29 @@
 
         const dependencies = await loadDependencies();
 
-        const compositionResult = dependencies.compose(
+        // Register Inter BEFORE layout so physical fit is measured with
+        // the same real glyph widths that Renderer will draw.
+        const surface = await createSurface(dependencies);
+
+        const rawCompositionResult = dependencies.compose(
             report,
             buildCompositionOptions(options)
         );
 
+        const compositionResult = ensureServiceBlocks(
+            rawCompositionResult,
+            report,
+            options
+        );
+
         const rawLayoutResult = dependencies.layout(
             compositionResult,
-            isPlainObject(options.layout)
-                ? options.layout
-                : {}
+            {
+                ...(isPlainObject(options.layout) ? options.layout : {}),
+                tokens: dependencies.design.TOKENS,
+                measureText: (text, fontName, sizePt) =>
+                    surface.measureText(text, fontName, sizePt)
+            }
         );
 
         const layoutResult = stampResolvedDensity(
@@ -426,8 +498,6 @@
                 layoutResult.diagnostics
             );
         }
-
-        const surface = await createSurface(dependencies);
 
         const renderContext =
             new dependencies.RenderContext(
