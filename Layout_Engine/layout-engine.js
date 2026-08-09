@@ -90,53 +90,87 @@
         return [];
     }
 
-    // Deterministic font-independent estimate. Renderer performs the final glyph drawing.
-    // Layout intentionally errs slightly high so content is never clipped.
-    function charsPerLine(width, fontSize) {
-        return Math.max(8, Math.floor(width / Math.max(2.8, fontSize * 0.53)));
-    }
+    function createTextMeasurer(options = {}) {
+        const realMeasure = typeof options.measureText === 'function'
+            ? options.measureText
+            : null;
 
-    function lineCount(text, width, fontSize) {
-        const s = cleanText(text);
-        if (!s) return 0;
-        const cap = charsPerLine(width, fontSize);
-        const words = s.split(' ');
-        let lines = 1, used = 0;
-        for (const word of words) {
-            const n = word.length + (used ? 1 : 0);
-            if (used && used + n > cap) {
-                lines += Math.max(1, Math.ceil(word.length / cap));
-                used = Math.min(word.length, cap);
-            } else if (!used && word.length > cap) {
-                lines += Math.ceil(word.length / cap) - 1;
-                used = word.length % cap;
-            } else {
-                used += n;
+        function widthOf(text, fontName, fontSize) {
+            const value = cleanText(text);
+            if (!value) return 0;
+            if (realMeasure) {
+                const measured = Number(realMeasure(value, fontName, fontSize));
+                if (Number.isFinite(measured)) return measured;
             }
+            // Deterministic fallback only for environments that do not provide
+            // DrawingSurface.measureText. Browser production path provides it.
+            return value.length * fontSize * 0.53;
         }
-        return lines;
+
+        function lines(text, width, fontSize, fontName = 'regular') {
+            const raw = String(text ?? '').replace(/\r\n?/g, '\n');
+            if (!raw.trim()) return 0;
+            let count = 0;
+
+            for (const paragraph of raw.split('\n')) {
+                if (!paragraph.trim()) {
+                    count += 1;
+                    continue;
+                }
+
+                let line = '';
+                for (const word of paragraph.trim().split(/\s+/)) {
+                    const candidate = line ? `${line} ${word}` : word;
+                    if (widthOf(candidate, fontName, fontSize) <= width) {
+                        line = candidate;
+                        continue;
+                    }
+
+                    if (line) {
+                        count += 1;
+                        line = '';
+                    }
+
+                    let fragment = '';
+                    for (const ch of Array.from(word)) {
+                        const next = fragment + ch;
+                        if (fragment && widthOf(next, fontName, fontSize) > width) {
+                            count += 1;
+                            fragment = ch;
+                        } else {
+                            fragment = next;
+                        }
+                    }
+                    line = fragment;
+                }
+                if (line) count += 1;
+            }
+            return count;
+        }
+
+        return Object.freeze({ widthOf, lines });
     }
 
     function blockChrome(mode) {
         return mode.padY * 2 + mode.blockTitleLine + mode.lineGap;
     }
 
-    function measureList(block, width, mode) {
+    function measureList(block, width, mode, tm) {
         const items = arrayOf(block);
         const inner = Math.max(40, width - mode.padX * 2 - 18);
         let h = blockChrome(mode);
         for (const item of items) {
             const title = cleanText(item?.title || item?.label || '');
             const body = cleanText(item?.description || item?.text || item?.value || textOf(item));
-            const titleLines = title ? lineCount(title, inner, mode.body) : 0;
-            const bodyLines = body && body !== title ? lineCount(body, inner, mode.small) : 0;
+            const titleLines = title ? tm.lines(title, inner, mode.body, 'semibold') : 0;
+            const bodyLines = body && body !== title ? tm.lines(body, inner, mode.small, 'regular') : 0;
             h += Math.max(mode.bodyLine, titleLines * mode.bodyLine + bodyLines * mode.smallLine);
             h += mode.lineGap;
         }
         return Math.max(32, h);
     }
 
-    function measureSummary(block, width, mode) {
+    function measureSummary(block, width, mode, tm) {
         const c = block?.content ?? block?.data ?? block?.value ?? '';
         let paragraphs = [];
         if (Array.isArray(c)) paragraphs = c.map(textOf).filter(Boolean);
@@ -147,11 +181,11 @@
 
         const inner = Math.max(50, width - mode.padX * 2);
         let lines = 0;
-        for (const p of paragraphs) lines += lineCount(p, inner, mode.body);
+        for (const p of paragraphs) lines += tm.lines(p, inner, mode.body, 'regular');
         return Math.max(42, blockChrome(mode) + lines * mode.bodyLine + Math.max(0, paragraphs.length - 1) * mode.lineGap);
     }
 
-    function measureMetrics(block, width, mode) {
+    function measureMetrics(block, width, mode, tm) {
         const items = arrayOf(block);
         if (!items.length) return 0;
         const columns = width >= 300 ? 4 : width >= 200 ? 3 : 2;
@@ -167,7 +201,7 @@
                 const value = cleanText(item.value || item.primaryValue || item.metric);
                 const h = mode.padY * 2
                     + Math.max(mode.bodyLine * 1.6, lineCount(value, cellW - mode.padX * 2, mode.body * 1.45) * mode.bodyLine)
-                    + lineCount(label, cellW - mode.padX * 2, mode.small) * mode.smallLine;
+                    + tm.lines(label, cellW - mode.padX * 2, mode.small, 'regular') * mode.smallLine;
                 rowH = Math.max(rowH, h);
             }
             total += rowH + (r ? mode.cardGap : 0);
@@ -175,7 +209,7 @@
         return Math.max(36, blockChrome(mode) + total);
     }
 
-    function measureTasks(block, width, mode) {
+    function measureTasks(block, width, mode, tm) {
         const items = arrayOf(block);
         const taskW = Math.max(80, width * 0.58);
         let h = blockChrome(mode) + 14; // table header
@@ -185,7 +219,7 @@
             const due = cleanText(item.dueDate || item.due_date || item.deadline || '');
             const lines = Math.max(
                 1,
-                lineCount(task, taskW, mode.taskBody),
+                tm.lines(task, taskW, mode.taskBody, 'regular'),
                 lineCount(owner, width * 0.22, mode.taskBody),
                 lineCount(due, width * 0.16, mode.taskBody)
             );
@@ -194,7 +228,7 @@
         return Math.max(42, h);
     }
 
-    function measureArchitecture(block, width, mode) {
+    function measureArchitecture(block, width, mode, tm) {
         const sections = arrayOf(block);
         if (!sections.length) return 0;
         const cols = Math.min(4, Math.max(1, sections.length));
@@ -207,8 +241,8 @@
             for (const item of items) {
                 const it = cleanText(item.title || item.name || item.label);
                 const desc = cleanText(item.description || item.text || '');
-                h += Math.max(mode.bodyLine, lineCount(it, colW - mode.padX * 2, mode.small) * mode.smallLine);
-                if (desc) h += lineCount(desc, colW - mode.padX * 2, mode.small) * mode.smallLine;
+                h += Math.max(mode.bodyLine, tm.lines(it, colW - mode.padX * 2, mode.small, 'semibold') * mode.smallLine);
+                if (desc) h += tm.lines(desc, colW - mode.padX * 2, mode.small, 'regular') * mode.smallLine;
                 h += mode.lineGap;
             }
             max = Math.max(max, h);
@@ -216,7 +250,7 @@
         return Math.max(42, blockChrome(mode) + max);
     }
 
-    function measureOwners(block, width, mode) {
+    function measureOwners(block, width, mode, tm) {
         const items = arrayOf(block);
         if (!items.length) return 0;
         const perRow = Math.max(1, Math.floor(width / 110));
@@ -224,21 +258,21 @@
         return blockChrome(mode) + rows * (mode === MODES.dense ? 22 : 26) + Math.max(0, rows - 1) * mode.cardGap;
     }
 
-    function measure(block, width, mode) {
+    function measure(block, width, mode, tm) {
         const id = idOf(block);
         switch (id) {
             case 'header': return 39;
             case 'meetingStats': return 17;
-            case 'executiveSummary': return measureSummary(block, width, mode);
-            case 'keyMetrics': return measureMetrics(block, width, mode);
+            case 'executiveSummary': return measureSummary(block, width, mode, tm);
+            case 'keyMetrics': return measureMetrics(block, width, mode, tm);
             case 'insights':
             case 'decisions':
-            case 'risks': return measureList(block, width, mode);
-            case 'tasks': return measureTasks(block, width, mode);
-            case 'architecture': return measureArchitecture(block, width, mode);
-            case 'owners': return measureOwners(block, width, mode);
+            case 'risks': return measureList(block, width, mode, tm);
+            case 'tasks': return measureTasks(block, width, mode, tm);
+            case 'architecture': return measureArchitecture(block, width, mode, tm);
+            case 'owners': return measureOwners(block, width, mode, tm);
             case 'footer': return 28;
-            default: return measureList(block, width, mode);
+            default: return measureList(block, width, mode, tm);
         }
     }
 
@@ -269,7 +303,7 @@
         });
     }
 
-    function buildPage(blocks, modeName) {
+    function buildPage(blocks, modeName, tm) {
         const mode = MODES[modeName];
         const map = byId(blocks);
         const x = mode.marginX;
@@ -280,7 +314,7 @@
         const placeFull = (id, forcedH = null) => {
             const b = map.get(id);
             if (!b) return 0;
-            const h = forcedH ?? measure(b, contentW, mode);
+            const h = forcedH ?? measure(b, contentW, mode, tm);
             pageBlocks.push(cloneWithGeometry(b, { x, y, width: contentW, height: h }, { density: modeName }));
             y += h + mode.sectionGap;
             return h;
@@ -296,8 +330,8 @@
             const gap = mode.columnGap;
             const leftW = (contentW - gap) * 0.435;
             const rightW = contentW - gap - leftW;
-            const h1 = measure(summary, leftW, mode);
-            const h2 = measure(metrics, rightW, mode);
+            const h1 = measure(summary, leftW, mode, tm);
+            const h2 = measure(metrics, rightW, mode, tm);
             const rowH = Math.max(h1, h2);
             pageBlocks.push(cloneWithGeometry(summary, { x, y, width: leftW, height: rowH }, { density: modeName, naturalHeight: h1 }));
             pageBlocks.push(cloneWithGeometry(metrics, { x: x + leftW + gap, y, width: rightW, height: rowH }, { density: modeName, naturalHeight: h2 }));
@@ -312,7 +346,7 @@
         if (trio.length) {
             const gap = mode.columnGap;
             const colW = (contentW - gap * (trio.length - 1)) / trio.length;
-            const hs = trio.map(id => measure(map.get(id), colW, mode));
+            const hs = trio.map(id => measure(map.get(id), colW, mode, tm));
             const rowH = Math.max(...hs);
             trio.forEach((id, i) => {
                 pageBlocks.push(cloneWithGeometry(
@@ -331,8 +365,8 @@
             const gap = mode.columnGap;
             const leftW = (contentW - gap) * 0.39;
             const rightW = contentW - gap - leftW;
-            const h1 = measure(tasks, leftW, mode);
-            const h2 = measure(architecture, rightW, mode);
+            const h1 = measure(tasks, leftW, mode, tm);
+            const h2 = measure(architecture, rightW, mode, tm);
             const rowH = Math.max(h1, h2);
             pageBlocks.push(cloneWithGeometry(tasks, { x, y, width: leftW, height: rowH }, { density: modeName, naturalHeight: h1 }));
             pageBlocks.push(cloneWithGeometry(architecture, { x: x + leftW + gap, y, width: rightW, height: rowH }, { density: modeName, naturalHeight: h2 }));
@@ -382,7 +416,7 @@
         };
     }
 
-    function paginateSequential(blocks, modeName) {
+    function paginateSequential(blocks, modeName, tm) {
         const mode = MODES[modeName];
         const contentW = PAGE.width - mode.marginX * 2;
         const maxY = PAGE.height - mode.marginBottom;
@@ -403,7 +437,7 @@
         };
 
         for (const block of blocks) {
-            const h = measure(block, contentW, mode);
+            const h = measure(block, contentW, mode, tm);
             if (current.length && y + h > maxY) pushPage();
             current.push(cloneWithGeometry(block, {
                 x: mode.marginX, y,
@@ -433,6 +467,7 @@
     }
 
     function layout(composition, options = {}) {
+        const tm = createTextMeasurer(options);
         const blocks = getBlocks(composition)
             .filter(Boolean)
             .sort((a, b) => {
@@ -450,7 +485,7 @@
         let selected = null;
         const attempts = [];
         for (const modeName of ['regular','compact','dense']) {
-            const attempt = buildPage(blocks, modeName);
+            const attempt = buildPage(blocks, modeName, tm);
             attempts.push({ density: modeName, usedHeight: attempt.usedHeight, fits: attempt.fits });
             if (attempt.fits) {
                 selected = attempt;
@@ -470,7 +505,7 @@
             }];
         } else {
             density = 'dense';
-            pages = paginateSequential(blocks, density);
+            pages = paginateSequential(blocks, density, tm);
         }
 
         const diagnostics = validate(pages);
@@ -486,7 +521,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.5.0-6E',
+        version: 'golden-1.6.0-6E2-real-measurement',
         PAGE,
         MODES,
         layout
