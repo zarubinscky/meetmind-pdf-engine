@@ -352,7 +352,7 @@
         if (owners || footer) {
             // If semantic rows already consume the bottom band, this attempt must fail
             // and density/pagination remains responsible for recovery.
-            const bandY = Math.max(y, bottomBandY);
+            const bandY = bottomBandY;
 
             if (owners) {
                 pageBlocks.push(cloneWithGeometry(
@@ -373,12 +373,14 @@
             y = bandY + bottomBandH;
         }
 
-        const usedHeight = y + mode.marginBottom;
+        const semanticBottom = owners || footer ? bottomBandY : PAGE.height - mode.marginBottom;
+        const semanticFits = (owners || footer) ? y <= bottomBandY + 0.01 : true;
+        const usedHeight = (owners || footer) ? (semanticFits ? PAGE.height : y + bottomBandH + mode.marginBottom) : y + mode.marginBottom;
         return {
             mode: modeName,
             blocks: pageBlocks,
             usedHeight,
-            fits: usedHeight <= PAGE.height + 0.01
+            fits: semanticFits && usedHeight <= PAGE.height + 0.01
         };
     }
 
@@ -486,7 +488,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.5.0-6E',
+        version: 'golden-1.5.1-6E1',
         PAGE,
         MODES,
         layout
