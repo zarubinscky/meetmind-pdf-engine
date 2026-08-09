@@ -200,7 +200,7 @@
                 const label = cleanText(item.label || item.title || item.name);
                 const value = cleanText(item.value || item.primaryValue || item.metric);
                 const h = mode.padY * 2
-                    + Math.max(mode.bodyLine * 1.6, lineCount(value, cellW - mode.padX * 2, mode.body * 1.45) * mode.bodyLine)
+                    + Math.max(mode.bodyLine * 1.6, tm.lines(value, cellW - mode.padX * 2, mode.body * 1.45, 'semibold') * mode.bodyLine)
                     + tm.lines(label, cellW - mode.padX * 2, mode.small, 'regular') * mode.smallLine;
                 rowH = Math.max(rowH, h);
             }
@@ -220,8 +220,8 @@
             const lines = Math.max(
                 1,
                 tm.lines(task, taskW, mode.taskBody, 'regular'),
-                lineCount(owner, width * 0.22, mode.taskBody),
-                lineCount(due, width * 0.16, mode.taskBody)
+                tm.lines(owner, width * 0.22, mode.taskBody, 'regular'),
+                tm.lines(due, width * 0.16, mode.taskBody, 'regular')
             );
             h += Math.max(13, lines * mode.taskLine + mode.padY);
         }
@@ -237,7 +237,7 @@
         for (const section of sections) {
             const title = cleanText(section.title || section.name || section.label);
             const items = Array.isArray(section.items) ? section.items : [];
-            let h = mode.padY * 2 + lineCount(title, colW - mode.padX * 2, mode.body) * mode.bodyLine + mode.lineGap;
+            let h = mode.padY * 2 + tm.lines(title, colW - mode.padX * 2, mode.body, 'semibold') * mode.bodyLine + mode.lineGap;
             for (const item of items) {
                 const it = cleanText(item.title || item.name || item.label);
                 const desc = cleanText(item.description || item.text || '');
@@ -521,7 +521,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.6.0-6E2-real-measurement',
+        version: 'golden-1.6.1-6E2a-real-measurement',
         PAGE,
         MODES,
         layout
