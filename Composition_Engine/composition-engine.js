@@ -89,7 +89,7 @@ export function composeExecutiveReport(report, options = {}) {
 
 
   return Object.freeze({
-    version: "1.0.1-6E1",
+    version: "1.0",
     title: normalized.title,
     date: normalized.date,
     pages: Object.freeze(pages),
@@ -631,8 +631,7 @@ function buildMeetingStatsFallback(report) {
   const participants = Array.isArray(report.participants)
     ? report.participants.length
     : null;
-  const rawTasks = Array.isArray(report.tasks) ? report.tasks : (Array.isArray(report.action_items) ? report.action_items : null);
-  const tasks = rawTasks ? rawTasks.length : null;
+  const tasks = Array.isArray(report.tasks) ? report.tasks.length : null;
   const decisions = Array.isArray(report.decisions)
     ? report.decisions.length
     : null;
