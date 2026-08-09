@@ -59,10 +59,16 @@
         const registry=global.ExecutiveSlideEngine?.icons;
         const def=registry?.get?.(name);
         if(!def||typeof ctx.svgPath!=='function')return false;
+
+        // 6E: normalize Lucide's 24x24 viewport to the visual top-left anchor.
+        // pdf-lib's SVG path origin behaves differently from text/rect top-left
+        // coordinates, so the visual glyph needs one viewport-height correction.
+        const drawY = y - size * 0.78;
         const stroke=Math.max(.48,Math.min(.72,size*.055));
+
         def.nodes.forEach(([tag,a])=>{
             const d=nodePath(tag,a||{});
-            if(d)ctx.svgPath(d,{x,y,size,stroke:color,borderWidth:stroke});
+            if(d)ctx.svgPath(d,{x,y:drawY,size,stroke:color,borderWidth:stroke});
         });
         return true;
     }
@@ -133,9 +139,9 @@
     function sectionHeader(ctx,g,title,color='purplePrimary'){
         const sp=spacing(ctx), s=style(ctx,'blockTitle',{font:'bold',size:8.2,lineHeight:9.8,color:'textPrimary'});
         const key=Object.keys(TITLES).find(k=>TITLES[k]===title);
-        const size=10;
-        icon(ctx,SECTION_ICONS[key]||'sparkles',g.x+sp.padX,g.y+sp.padY-1,size,color);
-        ctx.text(title,{x:g.x+sp.padX+14,y:g.y+sp.padY,size:s.size,font:s.font,color});
+        const size=9.2;
+        icon(ctx,SECTION_ICONS[key]||'sparkles',g.x+sp.padX,g.y+sp.padY+1.2,size,color);
+        ctx.text(title,{x:g.x+sp.padX+13.2,y:g.y+sp.padY,size:s.size,font:s.font,color});
         return g.y+sp.padY+s.lineHeight+sp.titleGap;
     }
     function blockData(block){
@@ -161,22 +167,48 @@
         };
     }
 
+    function formatMeetingDate(value){
+        const raw=clean(value);
+        if(!raw)return '';
+        const d=new Date(raw);
+        if(Number.isNaN(d.getTime()))return raw;
+        try{
+            return new Intl.DateTimeFormat('ru-RU',{
+                day:'numeric',month:'long',year:'numeric'
+            }).format(d).replace(/\s*г\.?$/,' г.');
+        }catch{return raw;}
+    }
+    function formatDuration(seconds){
+        const n=Number(seconds);
+        if(!Number.isFinite(n)||n<=0)return '';
+        const total=Math.round(n/60);
+        const h=Math.floor(total/60), m=total%60;
+        return h?`${h}:${String(m).padStart(2,'0')}`:`${m} мин`;
+    }
     function renderHeader(block,ctx){
         const r=ctx.report||{}, g=block.geometry;
         const title=clean(r.title||r.meeting_title||r.meetingTitle||'Meeting Report');
-        const date=clean(
+        const date=formatMeetingDate(
             r.date||r.meeting_date||r.meetingDate||r.created_at||r.createdAt||
             r.metadata?.date||r.meeting?.date||r.meeting?.created_at||''
         );
-        const time=clean(r.time||r.meeting_time||r.meetingTime||r.metadata?.time||'');
+        const explicitTime=clean(r.time||r.meeting_time||r.meetingTime||r.metadata?.time||'');
+        const duration=formatDuration(
+            r.duration_seconds||r.durationSeconds||r.stats?.duration_seconds||
+            r.metadata?.duration_seconds||r.meeting?.duration_seconds
+        );
+        const time=explicitTime||duration;
         const titleS=style(ctx,'reportTitle',{font:'bold',size:15,lineHeight:18.5,color:'textPrimary'});
-        const metaS=style(ctx,'meetingMeta',{font:'medium',size:7.5,lineHeight:9,color:'textSecondary'});
+        const metaS=style(ctx,'meetingMeta',{font:'medium',size:7.2,lineHeight:8.6,color:'textSecondary'});
         const left=g.x+9;
-        textLines(ctx,title,left,g.y+4,g.width-150,titleS);
-        const meta=[date,time].filter(Boolean).join('   |   ');
-        if(meta)ctx.text(meta,{x:left,y:g.y+25,size:metaS.size,font:metaS.font,color:metaS.color});
 
-        // deterministic lightweight mountain until final asset polish
+        textLines(ctx,title,left,g.y+3,g.width-150,titleS);
+
+        const meta=[date,time].filter(Boolean).join('   |   ');
+        if(meta)ctx.text(meta,{x:left,y:g.y+24,size:metaS.size,font:metaS.font,color:metaS.color});
+
+        // 6E keeps the current vector placeholder geometry.
+        // Final mountain artwork remains a separate asset-polish step.
         const rx=g.x+g.width-108, by=g.y+28;
         ctx.line({x1:rx,y1:by,x2:rx+27,y2:by-18,color:'purpleSoft',thickness:1.4});
         ctx.line({x1:rx+27,y1:by-18,x2:rx+52,y2:by,color:'purpleSoft',thickness:1.4});
@@ -205,12 +237,18 @@
         const colors=['purplePrimary','purplePrimary','greenSuccess','orangeRisk'];
         const itemW=Math.min(120,(g.width-12)/Math.max(1,entries.length));
         let x=g.x+9;
+
         entries.forEach((e,i)=>{
             const c=colors[i]||'purplePrimary';
-            icon(ctx,STAT_ICONS[e.label]||'circle-check',x,g.y+2,10,c);
-            ctx.text(e.label,{x:x+14,y:g.y+3,size:label.size,font:label.font,color:label.color});
+            icon(ctx,STAT_ICONS[e.label]||'circle-check',x,g.y+7.5,9,c);
+            ctx.text(e.label,{x:x+13,y:g.y+5.2,size:label.size,font:label.font,color:label.color});
             const lw=measure(ctx,e.label,label);
-            ctx.text(e.value,{x:x+17+lw,y:g.y+3,size:value.size,font:value.font,color:value.color});
+            ctx.text(e.value,{x:x+16+lw,y:g.y+5.2,size:value.size,font:value.font,color:value.color});
+
+            if(i<entries.length-1){
+                const sx=x+itemW-8;
+                ctx.line({x1:sx,y1:g.y+4,x2:sx,y2:g.y+14,color:'dividerDefault',thickness:.45});
+            }
             x+=itemW;
         });
     }
@@ -239,15 +277,35 @@
         const cellH=(innerBottom-y-gap*(rows-1))/rows;
         const ls=style(ctx,'metricLabel',{font:'semibold',size:5.2,lineHeight:6.2,color:'textPrimary'});
         const vs=style(ctx,'metricValue',{font:'bold',size:8.5,lineHeight:9.5,color:'textPrimary'});
+
         metrics.forEach((m,i)=>{
-            const col=i%cols,row=Math.floor(i/cols), x=innerX+col*(cellW+gap), cy=y+row*(cellH+gap);
+            const col=i%cols,row=Math.floor(i/cols);
+            const x=innerX+col*(cellW+gap), cy=y+row*(cellH+gap);
             ctx.rect({x,y:cy,width:cellW,height:cellH,fill:'cardBg',stroke:'borderDefault',borderWidth:.5,radius:3});
+
             const label=clean(m?.label||m?.title||m?.name||'');
             const value=clean(m?.value||m?.metric||m?.amount||'—');
-            textLines(ctx,label,x+5,cy+5,cellW-10,ls,'center');
-            icon(ctx,METRIC_ICONS[i%METRIC_ICONS.length],x+cellW/2-6,cy+19,12,i===5?'orangeRisk':i===4?'greenSuccess':'purplePrimary');
+
+            // Golden rhythm: label at top, icon centered, value anchored at bottom.
+            textLines(ctx,label,x+5,cy+4.5,cellW-10,ls,'center');
+
+            const iconSize=Math.min(12.5,Math.max(9.5,cellH*.25));
+            const iconY=cy+cellH*.48;
+            icon(
+                ctx,
+                METRIC_ICONS[i%METRIC_ICONS.length],
+                x+cellW/2-iconSize/2,
+                iconY,
+                iconSize,
+                i===5?'orangeRisk':i===4?'greenSuccess':'purplePrimary'
+            );
+
             const vw=measure(ctx,value,vs);
-            ctx.text(value,{x:x+(cellW-vw)/2,y:cy+cellH-13,size:vs.size,font:vs.font,color:vs.color});
+            ctx.text(value,{
+                x:x+(cellW-vw)/2,
+                y:cy+cellH-vs.lineHeight-2.2,
+                size:vs.size,font:vs.font,color:vs.color
+            });
         });
     }
 
@@ -373,20 +431,35 @@
     function renderOwners(block,ctx){
         const g=block.geometry; const sp=spacing(ctx);
         const title=style(ctx,'blockTitle',{font:'bold',size:8.2,lineHeight:9.8,color:'textPrimary'});
-        icon(ctx,'users',g.x+sp.padX,g.y+sp.padY-1,10,'purplePrimary');
-        ctx.text(TITLES.owners,{x:g.x+sp.padX+14,y:g.y+sp.padY,size:title.size,font:title.font,color:'textPrimary'});
+        const titleY=g.y+Math.max(5,(g.height-title.lineHeight)/2);
+
+        icon(ctx,'users',g.x+sp.padX,titleY+3.2,9.2,'purplePrimary');
+        ctx.text(TITLES.owners,{
+            x:g.x+sp.padX+13.2,
+            y:titleY,
+            size:title.size,font:title.font,color:'textPrimary'
+        });
+
         const owners=ownersFrom(block,ctx.report||{});
         const name=style(ctx,'ownerName',{font:'medium',size:5.3,lineHeight:6.2,color:'textPrimary'});
         const init=style(ctx,'ownerInitials',{font:'bold',size:5.2,lineHeight:6,color:'purplePrimary'});
-        const startX=g.x+70, available=g.width-78, itemW=available/Math.max(1,owners.length);
+
+        // Reserve the right side for footer branding; owners stay in one row.
+        const startX=g.x+70;
+        const footerReserve=150;
+        const available=Math.max(220,g.width-78-footerReserve);
+        const itemW=available/Math.max(1,owners.length);
+        const centerY=g.y+g.height/2;
+
         owners.forEach((o,i)=>{
             const n=clean(o?.name||o), x=startX+i*itemW;
-            ctx.circle({x:x+8,y:g.y+g.height/2,radius:7.2,fill:'purpleSoft'});
+            ctx.circle({x:x+8,y:centerY,radius:7.2,fill:'purpleSoft'});
             const ins=initials(n), iw=measure(ctx,ins,init);
-            ctx.text(ins,{x:x+8-iw/2,y:g.y+g.height/2-3,size:init.size,font:init.font,color:init.color});
-            ctx.text(n,{x:x+19,y:g.y+g.height/2-3,size:name.size,font:name.font,color:name.color});
+            ctx.text(ins,{x:x+8-iw/2,y:centerY-3,size:init.size,font:init.font,color:init.color});
+            ctx.text(n,{x:x+19,y:centerY-3,size:name.size,font:name.font,color:name.color});
         });
     }
+
     function renderFooter(block,ctx){
         const g=block.geometry;
         const fs=style(ctx,'footer',{font:'regular',size:5.8,lineHeight:6.8,color:'textSecondary'});
@@ -394,13 +467,15 @@
         const brand='meetmind.ai', generated='Generated by MeetMind AI';
         const bw=measure(ctx,brand,bs), gw=measure(ctx,generated,fs);
         const right=g.x+g.width;
-        ctx.text(brand,{x:right-bw,y:g.y+3,size:bs.size,font:bs.font,color:bs.color});
-        ctx.line({x1:right-bw-10,y1:g.y+1,x2:right-bw-10,y2:g.y+10,color:'dividerDefault',thickness:.4});
-        ctx.text(generated,{x:right-bw-18-gw,y:g.y+3,size:fs.size,font:fs.font,color:fs.color});
+        const y=g.y+Math.max(3,(g.height-fs.lineHeight)/2);
+        ctx.text(brand,{x:right-bw,y,size:bs.size,font:bs.font,color:bs.color});
+        ctx.line({x1:right-bw-10,y1:y-2,x2:right-bw-10,y2:y+8,color:'dividerDefault',thickness:.4});
+        ctx.text(generated,{x:right-bw-18-gw,y,size:fs.size,font:fs.font,color:fs.color});
     }
 
+
     host.blockRenderers=Object.freeze({
-        version:'1.4.0-golden-icon-normalization-6D',
+        version:'1.5.0-golden-composition-6E',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
