@@ -46,6 +46,7 @@
     });
 
     let CURRENT_REPORT = null;
+    let CURRENT_TOKENS = null;
 
     const ORDER = [
         'header', 'meetingStats', 'executiveSummary', 'keyMetrics',
@@ -157,27 +158,124 @@
         return mode.padY * 2 + mode.blockTitleLine + mode.lineGap;
     }
 
+    function densityName(mode) {
+        if (mode === MODES.compact) return 'compact';
+        if (mode === MODES.dense) return 'dense';
+        return 'regular';
+    }
+
+    function tokenStyle(name, density, fallback) {
+        const token = CURRENT_TOKENS?.typography?.tokens?.[name];
+        if (!token) return fallback;
+        return {
+            font: token.font || fallback.font,
+            size: Number(token.size?.[density] ?? token.size?.regular ?? fallback.size),
+            lineHeight: Number(
+                token.lineHeight?.[density] ??
+                token.lineHeight?.regular ??
+                fallback.lineHeight
+            )
+        };
+    }
+
+    function rendererSpacing(density, mode) {
+        const token = CURRENT_TOKENS?.spacing?.[density] || {};
+        return {
+            padX: Number(token.cardPaddingX ?? token.cardPadding ?? mode.padX),
+            padY: Number(token.cardPaddingY ?? token.cardPadding ?? mode.padY),
+            titleGap: Number(token.titleGap ?? mode.lineGap),
+            bulletGap: Number(token.bulletGap ?? mode.lineGap)
+        };
+    }
+
+    function rendererListItem(raw) {
+        if (typeof raw === 'string') {
+            return { title: cleanText(raw), description: '' };
+        }
+        return {
+            title: cleanText(
+                raw?.title ||
+                raw?.label ||
+                raw?.name ||
+                raw?.task ||
+                ''
+            ),
+            description: cleanText(
+                raw?.description ||
+                raw?.details ||
+                raw?.text ||
+                ''
+            )
+        };
+    }
+
     function measureList(block, width, mode, tm, report = null) {
         let items = arrayOf(block);
-        // Composition may intentionally carry only block identity/visibility while
-        // Renderer reads the actual list from report_json. Measurement MUST use
-        // the same source or allocated geometry will be shorter than rendered content.
+
+        // Renderer falls back to report_json when block data is empty.
+        // Measurement must consume exactly the same semantic source.
         if (!items.length && report) {
             const key = idOf(block);
-            if (['insights','decisions','risks'].includes(key) && Array.isArray(report[key])) {
+            if (['insights', 'decisions', 'risks'].includes(key) &&
+                Array.isArray(report[key])) {
                 items = report[key];
             }
         }
-        const inner = Math.max(40, width - mode.padX * 2 - 18);
-        let h = blockChrome(mode);
-        for (const item of items) {
-            const title = cleanText(item?.title || item?.label || '');
-            const body = cleanText(item?.description || item?.text || item?.value || textOf(item));
-            const titleLines = title ? tm.lines(title, inner, mode.body, 'semibold') : 0;
-            const bodyLines = body && body !== title ? tm.lines(body, inner, mode.small, 'regular') : 0;
-            h += Math.max(mode.bodyLine, titleLines * mode.bodyLine + bodyLines * mode.smallLine);
-            h += mode.lineGap;
+
+        const density = densityName(mode);
+        const sp = rendererSpacing(density, mode);
+        const blockTitle = tokenStyle(
+            'blockTitle',
+            density,
+            { font: 'bold', size: mode.blockTitle, lineHeight: mode.blockTitleLine }
+        );
+        const strong = tokenStyle(
+            'listStrong',
+            density,
+            { font: 'semibold', size: mode.small, lineHeight: mode.smallLine }
+        );
+        const body = tokenStyle(
+            'listBody',
+            density,
+            { font: 'regular', size: mode.small, lineHeight: mode.smallLine }
+        );
+
+        // Exact same horizontal geometry as renderList():
+        // tx = x + padX + 13
+        // tw = width - padX*2 - 13
+        const textWidth = Math.max(40, width - sp.padX * 2 - 13);
+
+        // Exact same start Y as sectionHeader(), plus a bottom safety padding.
+        let h = sp.padY + blockTitle.lineHeight + sp.titleGap;
+
+        for (const raw of items) {
+            const item = rendererListItem(raw);
+
+            if (item.title) {
+                h += tm.lines(
+                    item.title,
+                    textWidth,
+                    strong.size,
+                    strong.font
+                ) * strong.lineHeight;
+            }
+
+            if (item.description) {
+                h += tm.lines(
+                    item.description,
+                    textWidth,
+                    body.size,
+                    body.font
+                ) * body.lineHeight;
+            }
+
+            h += sp.bulletGap;
         }
+
+        // Renderer does not clip. Reserve the same visual bottom inset so that
+        // the next semantic row can never start on top of the final list line.
+        h += sp.padY;
+
         return Math.max(32, h);
     }
 
@@ -479,6 +577,7 @@
 
     function layout(composition, options = {}) {
         CURRENT_REPORT = options.report || null;
+        CURRENT_TOKENS = options.tokens || null;
         const tm = createTextMeasurer(options);
         const blocks = getBlocks(composition)
             .filter(Boolean)
@@ -533,7 +632,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.6.2-6E4-source-parity',
+        version: 'golden-1.7.0-6E5-render-measure-parity',
         PAGE,
         MODES,
         layout
