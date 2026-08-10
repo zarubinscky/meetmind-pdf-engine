@@ -276,13 +276,37 @@
         });
     }
 
+    function summaryParagraphs(block,report){
+        const raw=report?.summary??report?.executive_summary??report?.executiveSummary??report?.meeting_summary??blockData(block)??'';
+        if(Array.isArray(raw))return raw.map(textOf).filter(Boolean);
+        if(raw&&typeof raw==='object'){
+            const arr=raw.paragraphs||raw.items;
+            if(Array.isArray(arr))return arr.map(textOf).filter(Boolean);
+            const v=raw.text||raw.summary||raw.description||'';
+            if(typeof v==='string')return v.split(/\n\s*\n|\n/).map(clean).filter(Boolean);
+        }
+        if(typeof raw==='string')return raw.split(/\n\s*\n|\n/).map(clean).filter(Boolean);
+        return [];
+    }
     function renderSummary(block,ctx){
         const g=block.geometry; card(ctx,g);
         let y=sectionHeader(ctx,g,TITLES.summary,'purplePrimary');
         const sp=spacing(ctx), s=style(ctx,'body',{font:'regular',size:6.3,lineHeight:7.8,color:'textPrimary'});
-        const r=ctx.report||{};
-        const value=clean(r.summary||r.executive_summary||r.executiveSummary||r.meeting_summary||blockData(block)||'—');
-        textLines(ctx,value,g.x+sp.padX,y,g.width-sp.padX*2,s);
+        const paragraphs=summaryParagraphs(block,ctx.report||{});
+        const paragraphGap=Number(sp.paragraphGap??3.2);
+        const innerW=g.width-sp.padX*2;
+        const bottom=g.y+g.height-sp.padY;
+        const source=paragraphs.length?paragraphs:['—'];
+        source.forEach((paragraph,index)=>{
+            if(y>=bottom)return;
+            const lines=wrap(ctx,paragraph,s,innerW);
+            for(const line of lines){
+                if(y+s.lineHeight>bottom)return;
+                ctx.text(line,{x:g.x+sp.padX,y,size:s.size,font:s.font,color:s.color});
+                y+=s.lineHeight;
+            }
+            if(index<source.length-1)y+=paragraphGap;
+        });
     }
 
     function metricsFrom(block,report){
@@ -309,24 +333,26 @@
             const label=clean(m?.label||m?.title||m?.name||'');
             const value=clean(m?.value||m?.metric||m?.amount||'—');
 
-            // Golden rhythm: label at top, icon centered, value anchored at bottom.
-            textLines(ctx,label,x+5,cy+4.5,cellW-10,ls,'center');
-
-            const iconSize=Math.min(12.5,Math.max(9.5,cellH*.25));
-            const iconY=cy+cellH*.48;
+            // Metric Card v2: compact horizontal header (icon + label), value below.
+            // This keeps the designer's visual language while reclaiming vertical space.
+            const iconSize=Math.min(8.5,Math.max(7.0,cellH*.18));
+            const headerY=cy+4.5;
+            const iconX=x+5;
             icon(
                 ctx,
                 METRIC_ICONS[i%METRIC_ICONS.length],
-                x+cellW/2-iconSize/2,
-                iconY,
+                iconX,
+                headerY+.2,
                 iconSize,
                 i===5?'orangeRisk':i===4?'greenSuccess':'purplePrimary'
             );
+            textLines(ctx,label,iconX+iconSize+3,headerY,cellW-iconSize-13,ls,'left');
 
             const vw=measure(ctx,value,vs);
+            const valueY=Math.min(cy+cellH-vs.lineHeight-3,headerY+ls.lineHeight+5);
             ctx.text(value,{
                 x:x+(cellW-vw)/2,
-                y:cy+cellH-vs.lineHeight-2.2,
+                y:valueY,
                 size:vs.size,font:vs.font,color:vs.color
             });
         });
