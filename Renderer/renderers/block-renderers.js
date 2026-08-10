@@ -63,7 +63,7 @@
         // 6E: normalize Lucide's 24x24 viewport to the visual top-left anchor.
         // pdf-lib's SVG path origin behaves differently from text/rect top-left
         // coordinates, so the visual glyph needs one viewport-height correction.
-        const drawY = y - size * 0.95;
+        const drawY = y - size * 1.08;
         const stroke=Math.max(.48,Math.min(.72,size*.055));
 
         def.nodes.forEach(([tag,a])=>{
@@ -285,7 +285,13 @@
             const v=raw.text||raw.summary||raw.description||'';
             if(typeof v==='string')return v.split(/\n\s*\n|\n/).map(clean).filter(Boolean);
         }
-        if(typeof raw==='string')return raw.split(/\n\s*\n|\n/).map(clean).filter(Boolean);
+        if(typeof raw==='string'){
+            const explicit=raw.split(/\n\s*\n|\n/).map(clean).filter(Boolean);
+            if(explicit.length>1)return explicit;
+            const one=explicit[0]||'';
+            const sentences=one.match(/[^.!?…]+(?:[.!?…]+|$)/g)?.map(clean).filter(Boolean)||[];
+            return sentences.length>=3?sentences:[one].filter(Boolean);
+        }
         return [];
     }
     function renderSummary(block,ctx){
@@ -346,7 +352,9 @@
                 iconSize,
                 i===5?'orangeRisk':i===4?'greenSuccess':'purplePrimary'
             );
-            textLines(ctx,label,iconX+iconSize+3,headerY,cellW-iconSize-13,ls,'left');
+            // Icon is left-anchored, but the label remains optically centered in the card.
+            // This matches the approved reference while keeping the compact horizontal header.
+            textLines(ctx,label,x+18,headerY,cellW-36,ls,'center');
 
             const vw=measure(ctx,value,vs);
             const valueY=Math.min(cy+cellH-vs.lineHeight-3,headerY+ls.lineHeight+5);
@@ -524,7 +532,7 @@
 
 
     host.blockRenderers=Object.freeze({
-        version:'1.5.2-golden-6G-corrective',
+        version:'1.6.0-golden-6H-render-parity',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
