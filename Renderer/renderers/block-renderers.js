@@ -229,24 +229,38 @@
 
         const meta=[date,time].filter(Boolean).join('   |   ');
         if(meta)ctx.text(meta,{x:left,y:g.y+24,size:metaS.size,font:metaS.font,color:metaS.color});
+        // 6H.2.2: bounded mountain artwork using page-coordinate primitives only.
+        // Do NOT use svgPath here: its local SVG coordinate system caused artwork to
+        // escape the header and be painted underneath later cards. Every point below
+        // is explicitly bounded inside the header artwork box.
+        const artW=108, artH=34;
+        const ax=g.x+g.width-artW-8, ay=g.y+3;
+        const px=(u)=>ax+artW*u, py=(v)=>ay+artH*v;
+        const ridgePts=[
+            [0.00,0.88],[0.15,0.68],[0.28,0.79],[0.43,0.48],
+            [0.55,0.66],[0.70,0.18],[0.82,0.52],[1.00,0.82]
+        ];
+        for(let i=0;i<ridgePts.length-1;i++){
+            const a=ridgePts[i], b=ridgePts[i+1];
+            ctx.line({x1:px(a[0]),y1:py(a[1]),x2:px(b[0]),y2:py(b[1]),color:'purpleSoft',thickness:1.15});
+        }
+        // darker strategic ascent to the summit
+        const ascent=[[0.43,0.48],[0.55,0.66],[0.70,0.18],[0.82,0.52]];
+        for(let i=0;i<ascent.length-1;i++){
+            const a=ascent[i], b=ascent[i+1];
+            ctx.line({x1:px(a[0]),y1:py(a[1]),x2:px(b[0]),y2:py(b[1]),color:'purplePrimary',thickness:1.35});
+        }
+        // subtle internal facets, all clipped by construction to artW x artH
+        [[0.15,0.68,0.43,0.88],[0.28,0.79,0.43,0.48],[0.43,0.48,0.70,0.88],
+         [0.55,0.66,0.70,0.18],[0.70,0.18,0.82,0.82],[0.82,0.52,1.00,0.82]].forEach(p=>
+            ctx.line({x1:px(p[0]),y1:py(p[1]),x2:px(p[2]),y2:py(p[3]),color:'purpleSoft',thickness:.45})
+        );
+        // summit flag
+        const sx=px(.70), sy=py(.18);
+        ctx.line({x1:sx,y1:sy,x2:sx,y2:ay+1,color:'purplePrimary',thickness:.7});
+        ctx.line({x1:sx,y1:ay+1,x2:sx+7,y2:ay+3,color:'purplePrimary',thickness:.8});
+        ctx.line({x1:sx+7,y1:ay+3,x2:sx,y2:ay+5,color:'purplePrimary',thickness:.8});
 
-        // 6H.2: designer-reference mountain. Keep it vector-native so the PDF stays sharp
-        // and does not depend on an external raster asset. The silhouette is intentionally
-        // compact and right-aligned; the flag marks the strategic destination.
-        // 6H.2.1: draw inside a true 24x24 SVG viewport. RenderContext.svgPath()
-        // scales paths from 24x24; the previous 80-unit path was therefore scaled ~3.7x
-        // and escaped the page. Keep all path coordinates <= 24 and anchor to header right.
-        const artSize=92;
-        const mx=g.x+g.width-artSize-8, my=g.y+2;
-        const mountain='M 0 23 L 2.4 20.4 L 4.8 16.0 L 6.4 18.0 L 8.7 10.5 L 10.5 14.0 L 12.9 6.2 L 15.0 12.0 L 17.1 4.2 L 19.2 11.0 L 21.6 15.2 L 24 23 Z';
-        const ridge='M 2.4 20.4 L 6.4 18.0 L 8.7 10.5 L 10.5 14.0 L 12.9 6.2 L 15.0 12.0 L 17.1 4.2 L 19.2 11.0 L 21.6 15.2';
-        ctx.svgPath(mountain,{x:mx,y:my+1,size:artSize,fill:'purpleSoft',stroke:'purpleSoft',borderWidth:.10,opacity:.72});
-        ctx.svgPath(ridge,{x:mx,y:my+1,size:artSize,stroke:'purplePrimary',borderWidth:.38,opacity:.72});
-        // Summit is x=17.1/24 of the artwork viewport.
-        const summitX=mx+artSize*(17.1/24);
-        const summitY=my+1+artSize*(4.2/24);
-        ctx.line({x1:summitX,y1:summitY+1,x2:summitX,y2:Math.max(my,summitY-7),color:'purplePrimary',thickness:.65});
-        ctx.svgPath('M 0 0 L 7 2.2 L 0 4.4 Z',{x:summitX,y:Math.max(my,summitY-7),size:8,fill:'purplePrimary',stroke:'purplePrimary',borderWidth:.15});
     }
 
     function statEntries(report){
@@ -543,7 +557,7 @@
 
 
     host.blockRenderers=Object.freeze({
-        version:'1.6.1-golden-6H2-mountain',
+        version:'1.6.2-golden-6H2.2-bounded-mountain',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
