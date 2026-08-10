@@ -233,14 +233,20 @@
         // 6H.2: designer-reference mountain. Keep it vector-native so the PDF stays sharp
         // and does not depend on an external raster asset. The silhouette is intentionally
         // compact and right-aligned; the flag marks the strategic destination.
-        const mx=g.x+g.width-112, my=g.y+4;
-        const mountain='M 1 23 L 8 20 L 15 15 L 21 18 L 29 10 L 35 14 L 43 6 L 50 12 L 57 4 L 64 11 L 72 15 L 80 23 Z';
-        const ridge='M 8 20 L 21 18 L 29 10 L 35 14 L 43 6 L 50 12 L 57 4 L 64 11 L 72 15';
-        ctx.svgPath(mountain,{x:mx,y:my+4,size:88,fill:'purpleSoft',stroke:'purpleSoft',borderWidth:.15,opacity:.78});
-        ctx.svgPath(ridge,{x:mx,y:my+4,size:88,stroke:'purplePrimary',borderWidth:.65,opacity:.72});
-        // summit mast + flag
-        ctx.line({x1:mx+64,y1:my+7,x2:mx+64,y2:my+1,color:'purplePrimary',thickness:.8});
-        ctx.svgPath('M 0 0 L 7 2.2 L 0 4.4 Z',{x:mx+64,y:my,size:8,fill:'purplePrimary',stroke:'purplePrimary',borderWidth:.2});
+        // 6H.2.1: draw inside a true 24x24 SVG viewport. RenderContext.svgPath()
+        // scales paths from 24x24; the previous 80-unit path was therefore scaled ~3.7x
+        // and escaped the page. Keep all path coordinates <= 24 and anchor to header right.
+        const artSize=92;
+        const mx=g.x+g.width-artSize-8, my=g.y+2;
+        const mountain='M 0 23 L 2.4 20.4 L 4.8 16.0 L 6.4 18.0 L 8.7 10.5 L 10.5 14.0 L 12.9 6.2 L 15.0 12.0 L 17.1 4.2 L 19.2 11.0 L 21.6 15.2 L 24 23 Z';
+        const ridge='M 2.4 20.4 L 6.4 18.0 L 8.7 10.5 L 10.5 14.0 L 12.9 6.2 L 15.0 12.0 L 17.1 4.2 L 19.2 11.0 L 21.6 15.2';
+        ctx.svgPath(mountain,{x:mx,y:my+1,size:artSize,fill:'purpleSoft',stroke:'purpleSoft',borderWidth:.10,opacity:.72});
+        ctx.svgPath(ridge,{x:mx,y:my+1,size:artSize,stroke:'purplePrimary',borderWidth:.38,opacity:.72});
+        // Summit is x=17.1/24 of the artwork viewport.
+        const summitX=mx+artSize*(17.1/24);
+        const summitY=my+1+artSize*(4.2/24);
+        ctx.line({x1:summitX,y1:summitY+1,x2:summitX,y2:Math.max(my,summitY-7),color:'purplePrimary',thickness:.65});
+        ctx.svgPath('M 0 0 L 7 2.2 L 0 4.4 Z',{x:summitX,y:Math.max(my,summitY-7),size:8,fill:'purplePrimary',stroke:'purplePrimary',borderWidth:.15});
     }
 
     function statEntries(report){
