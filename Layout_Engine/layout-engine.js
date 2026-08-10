@@ -96,9 +96,41 @@
         return Math.max(8, Math.floor(width / Math.max(2.8, fontSize * 0.53)));
     }
 
-    function lineCount(text, width, fontSize) {
+    let ACTIVE_MEASURE_TEXT = null;
+
+    function lineCount(text, width, fontSize, fontName = 'regular') {
         const s = cleanText(text);
         if (!s) return 0;
+        if (typeof ACTIVE_MEASURE_TEXT === 'function') {
+            const words = s.split(/\s+/);
+            let lines = 1;
+            let line = '';
+            for (const word of words) {
+                const candidate = line ? `${line} ${word}` : word;
+                if (!line || ACTIVE_MEASURE_TEXT(candidate, fontName, fontSize) <= width) {
+                    line = candidate;
+                    continue;
+                }
+                lines += 1;
+                line = word;
+                // Match Renderer behavior for a single over-wide token.
+                if (ACTIVE_MEASURE_TEXT(line, fontName, fontSize) > width) {
+                    let fragment = '';
+                    let extra = 0;
+                    for (const ch of line) {
+                        const next = fragment + ch;
+                        if (fragment && ACTIVE_MEASURE_TEXT(next, fontName, fontSize) > width) {
+                            extra += 1;
+                            fragment = ch;
+                        } else fragment = next;
+                    }
+                    lines += extra;
+                    line = fragment;
+                }
+            }
+            return lines;
+        }
+
         const cap = charsPerLine(width, fontSize);
         const words = s.split(' ');
         let lines = 1, used = 0;
@@ -110,9 +142,7 @@
             } else if (!used && word.length > cap) {
                 lines += Math.ceil(word.length / cap) - 1;
                 used = word.length % cap;
-            } else {
-                used += n;
-            }
+            } else used += n;
         }
         return lines;
     }
@@ -123,20 +153,27 @@
 
     function measureList(block, width, mode) {
         const items = arrayOf(block);
-        const inner = Math.max(40, width - mode.padX * 2 - 18);
-        let h = blockChrome(mode);
+        const inner = Math.max(40, width - mode.padX * 2 - 13);
+        const strongSize = mode === MODES.regular ? 6.6 : mode === MODES.compact ? 6.3 : 6.1;
+        const bodySize = strongSize;
+        const lineHeight = mode === MODES.regular ? 9.0 : mode === MODES.compact ? 8.1 : 7.4;
+        const bulletGap = mode === MODES.regular ? 4 : mode === MODES.compact ? 3.3 : 2.7;
+        // sectionHeader() consumes title line + titleContentGap; card padding is real renderer spacing.
+        const titleContentGap = mode === MODES.regular ? 6 : mode === MODES.compact ? 5 : 4;
+        let h = mode.padY + mode.blockTitleLine + titleContentGap;
+
         for (const item of items) {
             const title = cleanText(item?.title || item?.label || '');
-            const body = cleanText(item?.description || item?.text || item?.value || textOf(item));
-            const titleLines = title ? lineCount(title, inner, mode.body) : 0;
-            const bodyLines = body && body !== title ? lineCount(body, inner, mode.small) : 0;
-            h += Math.max(mode.bodyLine, titleLines * mode.bodyLine + bodyLines * mode.smallLine);
-            h += mode.lineGap;
+            const body = cleanText(item?.description || item?.details || item?.text || item?.value || (title ? '' : textOf(item)));
+            const titleLines = title ? lineCount(title, inner, strongSize, 'semibold') : 0;
+            const bodyLines = body && body !== title ? lineCount(body, inner, bodySize, 'regular') : 0;
+            h += Math.max(lineHeight, titleLines * lineHeight + bodyLines * lineHeight);
+            h += bulletGap;
         }
-        // Renderer-safe bottom clearance. The list renderer uses real font metrics,
-        // while this engine deliberately uses a deterministic font-independent estimate.
-        // Keep one body line of reserve so the following semantic row can never collide.
-        h += mode.bodyLine;
+
+        // This is a content boundary, not a guessed safety spacer: the last rendered line
+        // must end before the card's physical bottom padding.
+        h += mode.padY;
         return Math.max(32, h);
     }
 
@@ -446,6 +483,7 @@
     }
 
     function layout(composition, options = {}) {
+        ACTIVE_MEASURE_TEXT = typeof options.measureText === 'function' ? options.measureText : null;
         const blocks = getBlocks(composition)
             .filter(Boolean)
             .sort((a, b) => {
@@ -499,7 +537,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.5.0-6E',
+        version: 'golden-1.6.0-6H-render-parity',
         PAGE,
         MODES,
         layout
