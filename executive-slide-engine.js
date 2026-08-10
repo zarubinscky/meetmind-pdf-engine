@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.2.5-golden-6E5-render-measure-parity';
+    const ENGINE_VERSION = '1.2.6-golden-6E6-icons-safe-padding';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.2.5-6E5';
+    const CACHE_VERSION = 'golden-1.2.6-6E6';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
@@ -30,6 +30,7 @@
         drawingSurface: 'drawing/drawing-surface.js',
         renderContext: 'core/render-context.js',
         designSystem: 'Renderer/design-system.js',
+        icons: 'Renderer/icons.js',
         blockRenderers: 'Renderer/renderers/block-renderers.js',
         renderer: 'Renderer/renderer.js'
     });
@@ -346,9 +347,22 @@
                 ensureFontkit()
             ]);
 
-            // Load browser-global subsystems in dependency order.
+            // Load browser-global subsystems in strict dependency order.
+            // Icon Registry MUST exist before Semantic Block Renderers are loaded.
             await loadClassicScript(engineUrl(PATHS.layout));
             await loadClassicScript(engineUrl(PATHS.designSystem));
+            await loadClassicScript(engineUrl(PATHS.icons));
+
+            if (
+                !global[ENGINE_NAME]?.icons ||
+                typeof global[ENGINE_NAME].icons.get !== 'function' ||
+                typeof global[ENGINE_NAME].icons.has !== 'function'
+            ) {
+                throw new Error(
+                    'Icon Registry did not expose ExecutiveSlideEngine.icons.get()/has().'
+                );
+            }
+
             await loadClassicScript(engineUrl(PATHS.blockRenderers));
             await loadClassicScript(engineUrl(PATHS.renderer));
 
@@ -401,6 +415,12 @@
             if (!host?.design?.TOKENS) {
                 throw new Error(
                     'Golden Design System was not attached to ExecutiveSlideEngine.design.'
+                );
+            }
+
+            if (!host?.icons || typeof host.icons.get !== 'function') {
+                throw new Error(
+                    'Golden Icon Registry was not attached to ExecutiveSlideEngine.icons.'
                 );
             }
 
