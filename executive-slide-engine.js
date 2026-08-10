@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.2.6-golden-6E6-icons-safe-padding';
+    const ENGINE_VERSION = '1.3.0-golden-6H-render-parity';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.2.6-6E6';
+    const CACHE_VERSION = 'golden-1.3.0-6H';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
@@ -470,6 +470,50 @@
         return surface;
     }
 
+
+    function addMeetMindFooterLinks(surface, layoutResult, pdfLib) {
+        const PDFName = pdfLib.PDFName;
+        const PDFString = pdfLib.PDFString;
+        const PDFArray = pdfLib.PDFArray;
+        const PDFNumber = pdfLib.PDFNumber;
+        if (!PDFName || !PDFString || !PDFArray || !PDFNumber) return;
+
+        const target = 'https://t.me/meetmind_app_bot';
+        const pages = surface.pages || [];
+
+        layoutResult.pages.forEach((layoutPage, index) => {
+            const pdfPage = pages[index];
+            if (!pdfPage?.node || !surface.pdf?.context) return;
+            const footer = layoutPage.blocks.find(block => (block.id || block.type) === 'footer');
+            const g = footer?.geometry;
+            if (!g) return;
+
+            // Clickable zone covers the visible meetmind.ai brand at the far right.
+            // Layout coordinates are top-down; PDF annotation rectangles are bottom-up.
+            const pageHeight = layoutResult.size?.height || 512;
+            const x1 = g.x + g.width - 52;
+            const x2 = g.x + g.width;
+            const y1 = pageHeight - (g.y + g.height);
+            const y2 = pageHeight - g.y;
+            const context = surface.pdf.context;
+            const rect = context.obj([x1, y1, x2, y2]);
+            const action = context.obj({
+                Type: 'Action',
+                S: 'URI',
+                URI: PDFString.of(target)
+            });
+            const annotation = context.obj({
+                Type: 'Annot',
+                Subtype: 'Link',
+                Rect: rect,
+                Border: [0, 0, 0],
+                A: action
+            });
+            const annotationRef = context.register(annotation);
+            pdfPage.node.addAnnot(annotationRef);
+        });
+    }
+
     async function generate(report, options = {}) {
         if (!isPlainObject(report)) {
             throw new TypeError(
@@ -541,6 +585,8 @@
                 blockRenderers: dependencies.rendererMap
             }
         );
+
+        addMeetMindFooterLinks(surface, layoutResult, dependencies.pdfLib);
 
         const pdfBytes = await surface.save();
 
