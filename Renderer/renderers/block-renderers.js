@@ -229,37 +229,21 @@
 
         const meta=[date,time].filter(Boolean).join('   |   ');
         if(meta)ctx.text(meta,{x:left,y:g.y+24,size:metaS.size,font:metaS.font,color:metaS.color});
-        // 6H.2.2: bounded mountain artwork using page-coordinate primitives only.
-        // Do NOT use svgPath here: its local SVG coordinate system caused artwork to
-        // escape the header and be painted underneath later cards. Every point below
-        // is explicitly bounded inside the header artwork box.
-        const artW=108, artH=34;
-        const ax=g.x+g.width-artW-8, ay=g.y+3;
-        const px=(u)=>ax+artW*u, py=(v)=>ay+artH*v;
-        const ridgePts=[
-            [0.00,0.88],[0.15,0.68],[0.28,0.79],[0.43,0.48],
-            [0.55,0.66],[0.70,0.18],[0.82,0.52],[1.00,0.82]
-        ];
-        for(let i=0;i<ridgePts.length-1;i++){
-            const a=ridgePts[i], b=ridgePts[i+1];
-            ctx.line({x1:px(a[0]),y1:py(a[1]),x2:px(b[0]),y2:py(b[1]),color:'purpleSoft',thickness:1.15});
+        // 6H.2.3: approved Golden Template mountain artwork.
+        // The asset is extracted from the approved designer reference and pre-embedded
+        // by executive-slide-engine.js before synchronous rendering begins.
+        // It is deliberately kept inside the Header's right-side visual safe area.
+        const artW=116, artH=54;
+        const artX=g.x+g.width-artW-5;
+        const artY=g.y+0.5;
+        if(typeof ctx.image==='function'){
+            ctx.image(
+                'header-mountain',
+                new Uint8Array(0),
+                {x:artX,y:artY,width:artW,height:artH}
+            );
         }
-        // darker strategic ascent to the summit
-        const ascent=[[0.43,0.48],[0.55,0.66],[0.70,0.18],[0.82,0.52]];
-        for(let i=0;i<ascent.length-1;i++){
-            const a=ascent[i], b=ascent[i+1];
-            ctx.line({x1:px(a[0]),y1:py(a[1]),x2:px(b[0]),y2:py(b[1]),color:'purplePrimary',thickness:1.35});
-        }
-        // subtle internal facets, all clipped by construction to artW x artH
-        [[0.15,0.68,0.43,0.88],[0.28,0.79,0.43,0.48],[0.43,0.48,0.70,0.88],
-         [0.55,0.66,0.70,0.18],[0.70,0.18,0.82,0.82],[0.82,0.52,1.00,0.82]].forEach(p=>
-            ctx.line({x1:px(p[0]),y1:py(p[1]),x2:px(p[2]),y2:py(p[3]),color:'purpleSoft',thickness:.45})
-        );
-        // summit flag
-        const sx=px(.70), sy=py(.18);
-        ctx.line({x1:sx,y1:sy,x2:sx,y2:ay+1,color:'purplePrimary',thickness:.7});
-        ctx.line({x1:sx,y1:ay+1,x2:sx+7,y2:ay+3,color:'purplePrimary',thickness:.8});
-        ctx.line({x1:sx+7,y1:ay+3,x2:sx,y2:ay+5,color:'purplePrimary',thickness:.8});
+
 
     }
 
@@ -557,7 +541,7 @@
 
 
     host.blockRenderers=Object.freeze({
-        version:'1.6.2-golden-6H2.2-bounded-mountain',
+        version:'1.6.3-golden-6H2.3-approved-mountain-asset',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
