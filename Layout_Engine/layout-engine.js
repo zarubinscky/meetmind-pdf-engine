@@ -432,6 +432,82 @@
         };
     }
 
+
+    // Continuation pages deliberately use a roomier vertical composition.
+    // Once the document has already expanded to page 2, preserving dense first-page
+    // typography wastes available space and reduces readability.
+    function buildContinuationPage(blocks, modeName) {
+        const mode = MODES[modeName];
+        const map = byId(blocks);
+        const x = mode.marginX;
+        const contentW = PAGE.width - mode.marginX * 2;
+        const pageBlocks = [];
+        let y = mode.marginTop;
+
+        const placeFull = (id, forcedH = null) => {
+            const b = map.get(id);
+            if (!b) return 0;
+            const h = forcedH ?? measure(b, contentW, mode);
+            pageBlocks.push(cloneWithGeometry(b, { x, y, width: contentW, height: h }, {
+                density: modeName, continuation: true, naturalHeight: h
+            }));
+            y += h + mode.sectionGap;
+            return h;
+        };
+
+        placeFull('header', 39);
+
+        // On page 2 semantic blocks are full-width. This uses the available canvas
+        // instead of carrying one-page compression rules into a sparse continuation.
+        for (const id of ['tasks', 'architecture']) placeFull(id);
+
+        const footer = map.get('footer');
+        const bottomBandH = 28;
+        const bottomBandY = PAGE.height - mode.marginBottom - bottomBandH;
+        if (footer) {
+            const bandY = Math.max(y, bottomBandY);
+            pageBlocks.push(cloneWithGeometry(footer, {
+                x, y: bandY, width: contentW, height: bottomBandH
+            }, { density: modeName, continuation: true, sharedBottomBand: true }));
+            y = bandY + bottomBandH;
+        }
+
+        const usedHeight = y + mode.marginBottom;
+        return { mode: modeName, blocks: pageBlocks, usedHeight, fits: usedHeight <= PAGE.height + 0.01 };
+    }
+
+    function trySemanticTwoPage(blocks) {
+        const map = byId(blocks);
+        const movable = ['tasks', 'architecture'].filter(id => map.has(id));
+        if (!movable.length) return null;
+
+        // Page 1 keeps the executive narrative and the three-column executive trio.
+        // Page 2 receives operational detail. Header/footer are repeated by contract.
+        const pageOneIds = ['header','meetingStats','executiveSummary','keyMetrics','insights','decisions','risks','owners','footer'];
+        const pageTwoIds = ['header', ...movable, 'footer'];
+        const pageOneBlocks = pageOneIds.map(id => map.get(id)).filter(Boolean);
+        const pageTwoBlocks = pageTwoIds.map(id => map.get(id)).filter(Boolean);
+
+        let first = null;
+        for (const modeName of ['regular','compact','dense']) {
+            const attempt = buildPage(pageOneBlocks, modeName);
+            if (attempt.fits) { first = attempt; break; }
+        }
+        if (!first) return null;
+
+        let second = null;
+        for (const modeName of ['regular','compact','dense']) {
+            const attempt = buildContinuationPage(pageTwoBlocks, modeName);
+            if (attempt.fits) { second = attempt; break; }
+        }
+        if (!second) return null;
+
+        return [
+            { id:'page-1', number:1, index:0, kind:'executive', size:PAGE, density:first.mode, blocks:first.blocks },
+            { id:'page-2', number:2, index:1, kind:'continuation', size:PAGE, density:second.mode, blocks:second.blocks }
+        ];
+    }
+
     function paginateSequential(blocks, modeName) {
         const mode = MODES[modeName];
         const contentW = PAGE.width - mode.marginX * 2;
@@ -520,8 +596,19 @@
                 blocks: selected.blocks
             }];
         } else {
-            density = 'dense';
-            pages = paginateSequential(blocks, density);
+            // Prefer semantic two-page composition over blind sequential pagination.
+            // This keeps Insights / Decisions / Risks in the efficient three-column row,
+            // repeats header/footer, and lets continuation content use a roomier density.
+            const semanticPages = trySemanticTwoPage(blocks);
+            if (semanticPages) {
+                pages = semanticPages;
+                density = semanticPages.some(p => p.density === 'dense')
+                    ? 'dense'
+                    : semanticPages.some(p => p.density === 'compact') ? 'compact' : 'regular';
+            } else {
+                density = 'dense';
+                pages = paginateSequential(blocks, density);
+            }
         }
 
         const diagnostics = validate(pages);
@@ -537,7 +624,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.6.0-6H-render-parity',
+        version: 'golden-1.7.0-adaptive-continuation',
         PAGE,
         MODES,
         layout
