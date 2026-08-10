@@ -133,6 +133,10 @@
             h += Math.max(mode.bodyLine, titleLines * mode.bodyLine + bodyLines * mode.smallLine);
             h += mode.lineGap;
         }
+        // Renderer-safe bottom clearance. The list renderer uses real font metrics,
+        // while this engine deliberately uses a deterministic font-independent estimate.
+        // Keep one body line of reserve so the following semantic row can never collide.
+        h += mode.bodyLine;
         return Math.max(32, h);
     }
 
