@@ -319,7 +319,7 @@
         });
     }
 
-    function buildPage(blocks, modeName) {
+    function buildPage(blocks, modeName, options = {}) {
         const mode = MODES[modeName];
         const map = byId(blocks);
         const x = mode.marginX;
@@ -357,21 +357,56 @@
             if (metrics) placeFull('keyMetrics');
         }
 
-        // Golden row 2: Insights | Decisions | Risks. Equal visual columns; row height is max natural content height.
+        // Executive semantic blocks are content-adaptive on multi-page composition.
+        // No report content is hardcoded: candidate geometry is scored from measured block heights.
+        // The one-page Golden keeps its established equal-column composition unless explicitly enabled.
         const trio = ['insights','decisions','risks'].filter(id => map.has(id));
         if (trio.length) {
             const gap = mode.columnGap;
-            const colW = (contentW - gap * (trio.length - 1)) / trio.length;
-            const hs = trio.map(id => measure(map.get(id), colW, mode));
-            const rowH = Math.max(...hs);
-            trio.forEach((id, i) => {
-                pageBlocks.push(cloneWithGeometry(
-                    map.get(id),
-                    { x: x + i * (colW + gap), y, width: colW, height: rowH },
-                    { density: modeName, naturalHeight: hs[i] }
-                ));
+
+            const rowCandidate = (rows) => {
+                let totalH = 0;
+                const placements = [];
+                rows.forEach((rowIds, rowIndex) => {
+                    const colW = (contentW - gap * (rowIds.length - 1)) / rowIds.length;
+                    const hs = rowIds.map(id => measure(map.get(id), colW, mode));
+                    const rowH = Math.max(...hs);
+                    totalH += rowH + (rowIndex < rows.length - 1 ? mode.sectionGap : 0);
+                    placements.push({ rowIds, colW, hs, rowH });
+                });
+                return { totalH, placements };
+            };
+
+            let chosen;
+            if (options.adaptiveExecutive === true && trio.length > 1) {
+                const candidates = [];
+                // All blocks in one horizontal row.
+                candidates.push(rowCandidate([trio]));
+                // Every 2+1 permutation is considered; measurement decides which block deserves full width.
+                if (trio.length === 3) {
+                    trio.forEach(fullId => {
+                        const pair = trio.filter(id => id !== fullId);
+                        candidates.push(rowCandidate([pair, [fullId]]));
+                        candidates.push(rowCandidate([[fullId], pair]));
+                    });
+                }
+                // Full-width vertical stack is a valid fallback for very text-heavy blocks.
+                candidates.push(rowCandidate(trio.map(id => [id])));
+                chosen = candidates.reduce((best, c) => !best || c.totalH < best.totalH ? c : best, null);
+            } else {
+                chosen = rowCandidate([trio]);
+            }
+
+            chosen.placements.forEach(row => {
+                row.rowIds.forEach((id, i) => {
+                    pageBlocks.push(cloneWithGeometry(
+                        map.get(id),
+                        { x: x + i * (row.colW + gap), y, width: row.colW, height: row.rowH },
+                        { density: modeName, naturalHeight: row.hs[i], adaptiveComposition: options.adaptiveExecutive === true }
+                    ));
+                });
+                y += row.rowH + mode.sectionGap;
             });
-            y += rowH + mode.sectionGap;
         }
 
         // Golden row 3: Tasks | Architecture, 39/61.
@@ -444,31 +479,50 @@
         const pageBlocks = [];
         let y = mode.marginTop;
 
-        const placeFull = (id, forcedH = null) => {
-            const b = map.get(id);
-            if (!b) return 0;
-            const h = forcedH ?? measure(b, contentW, mode);
-            pageBlocks.push(cloneWithGeometry(b, { x, y, width: contentW, height: h }, {
-                density: modeName, continuation: true, naturalHeight: h
-            }));
-            y += h + mode.sectionGap;
-            return h;
-        };
+        const header = map.get('header');
+        if (header) {
+            pageBlocks.push(cloneWithGeometry(header, { x, y, width: contentW, height: 39 }, { density: modeName, continuation: true }));
+            y += 39 + mode.sectionGap;
+        }
 
-        placeFull('header', 39);
-
-        // On page 2 semantic blocks are full-width. This uses the available canvas
-        // instead of carrying one-page compression rules into a sparse continuation.
-        for (const id of ['tasks', 'architecture']) placeFull(id);
-
+        const contentIds = ['tasks','architecture'].filter(id => map.has(id));
+        const natural = contentIds.map(id => ({ id, block: map.get(id), h: measure(map.get(id), contentW, mode) }));
+        const owners = map.get('owners');
         const footer = map.get('footer');
-        const bottomBandH = 28;
+        const bottomBandH = (owners || footer) ? 28 : 0;
         const bottomBandY = PAGE.height - mode.marginBottom - bottomBandH;
-        if (footer) {
+        const naturalContentH = natural.reduce((sum, item) => sum + item.h, 0) + Math.max(0, natural.length - 1) * mode.sectionGap;
+        const availableContentH = Math.max(0, bottomBandY - y - (bottomBandH ? mode.sectionGap : 0));
+
+        // Page-aware density is derived from actual free space, never from report values or benchmark names.
+        // Cap keeps typography within the approved design range while allowing sparse continuation pages to breathe.
+        const contentScale = naturalContentH > 0
+            ? Math.max(1, Math.min(1.32, availableContentH / naturalContentH))
+            : 1;
+
+        natural.forEach((item, index) => {
+            const scaledH = item.h * contentScale;
+            pageBlocks.push(cloneWithGeometry(item.block, { x, y, width: contentW, height: scaledH }, {
+                density: modeName,
+                continuation: true,
+                naturalHeight: item.h,
+                contentScale
+            }));
+            y += scaledH + (index < natural.length - 1 ? mode.sectionGap * contentScale : mode.sectionGap);
+        });
+
+        if (owners || footer) {
             const bandY = Math.max(y, bottomBandY);
-            pageBlocks.push(cloneWithGeometry(footer, {
-                x, y: bandY, width: contentW, height: bottomBandH
-            }, { density: modeName, continuation: true, sharedBottomBand: true }));
+            if (owners) {
+                pageBlocks.push(cloneWithGeometry(owners, { x, y: bandY, width: contentW, height: bottomBandH }, {
+                    density: modeName, continuation: true, sharedBottomBand: true
+                }));
+            }
+            if (footer) {
+                pageBlocks.push(cloneWithGeometry(footer, { x, y: bandY, width: contentW, height: bottomBandH }, {
+                    density: modeName, continuation: true, sharedBottomBand: true
+                }));
+            }
             y = bandY + bottomBandH;
         }
 
@@ -481,16 +535,16 @@
         const movable = ['tasks', 'architecture'].filter(id => map.has(id));
         if (!movable.length) return null;
 
-        // Page 1 keeps the executive narrative and the three-column executive trio.
+        // Page 1 keeps the executive narrative and chooses executive-block geometry from measured content.
         // Page 2 receives operational detail. Header/footer are repeated by contract.
-        const pageOneIds = ['header','meetingStats','executiveSummary','keyMetrics','insights','decisions','risks','owners','footer'];
-        const pageTwoIds = ['header', ...movable, 'footer'];
+        const pageOneIds = ['header','meetingStats','executiveSummary','keyMetrics','insights','decisions','risks','footer'];
+        const pageTwoIds = ['header', ...movable, 'owners', 'footer'];
         const pageOneBlocks = pageOneIds.map(id => map.get(id)).filter(Boolean);
         const pageTwoBlocks = pageTwoIds.map(id => map.get(id)).filter(Boolean);
 
         let first = null;
         for (const modeName of ['regular','compact','dense']) {
-            const attempt = buildPage(pageOneBlocks, modeName);
+            const attempt = buildPage(pageOneBlocks, modeName, { adaptiveExecutive: true });
             if (attempt.fits) { first = attempt; break; }
         }
         if (!first) return null;
