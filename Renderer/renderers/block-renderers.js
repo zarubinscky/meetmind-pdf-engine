@@ -409,8 +409,11 @@
         const g=block.geometry; card(ctx,g);
         const sp=spacing(ctx); let y=sectionHeader(ctx,g,TITLES.tasks,'purplePrimary');
         const tasks=tasksFrom(block,ctx.report||{});
-        const hs=style(ctx,'taskHeader',{font:'semibold',size:4.8,lineHeight:5.6,color:'textSecondary'});
-        const cs=style(ctx,'taskCell',{font:'regular',size:4.8,lineHeight:5.8,color:'textPrimary'});
+        const taskScale=Math.max(1,Math.min(1.32,Number(block?.layout?.contentScale)||1));
+        const hsBase=style(ctx,'taskHeader',{font:'semibold',size:4.8,lineHeight:5.6,color:'textSecondary'});
+        const csBase=style(ctx,'taskCell',{font:'regular',size:4.8,lineHeight:5.8,color:'textPrimary'});
+        const hs={...hsBase,size:hsBase.size*taskScale,lineHeight:hsBase.lineHeight*taskScale};
+        const cs={...csBase,size:csBase.size*taskScale,lineHeight:csBase.lineHeight*taskScale};
         const innerX=g.x+sp.padX, innerW=g.width-sp.padX*2;
         const noW=14, ownerW=innerW*.20, dueW=Math.max(31,innerW*.17), taskW=innerW-noW-ownerW-dueW;
         const xs=[innerX,innerX+noW,innerX+noW+taskW,innerX+noW+taskW+ownerW];
@@ -459,10 +462,13 @@
         sections.forEach((sec,i)=>{
             const x=innerX+i*(colW+gap), bottom=g.y+g.height-sp.padY;
             ctx.rect({x,y,width:colW,height:bottom-y,fill:'cardBg',stroke:'borderDefault',borderWidth:.5,radius:3});
-            const secNo=style(ctx,'architectureSectionNo',{font:'bold',size:6.5,lineHeight:7.5,color:'textPrimary'});
-            const secTitle=style(ctx,'architectureSectionTitle',{font:'bold',size:6.3,lineHeight:7.7,color:'textPrimary'});
+            const continuationScale=Math.max(1,Math.min(1.32,Number(block?.layout?.contentScale)||1));
+            const secNoBase=style(ctx,'architectureSectionNo',{font:'bold',size:6.5,lineHeight:7.5,color:'textPrimary'});
+            const secTitleBase=style(ctx,'architectureSectionTitle',{font:'bold',size:6.3,lineHeight:7.7,color:'textPrimary'});
+            const secNo={...secNoBase,size:secNoBase.size*continuationScale,lineHeight:secNoBase.lineHeight*continuationScale};
+            const secTitle={...secTitleBase,size:secTitleBase.size*continuationScale,lineHeight:secTitleBase.lineHeight*continuationScale};
             ctx.text(String(i+1),{x:x+6,y:y+6,size:secNo.size,font:secNo.font,color:accents[i]});
-            let sy=y+6+textLines(ctx,clean(sec?.title||sec?.name),x+17,y+6,colW-22,secTitle)+3;
+            let sy=y+6+textLines(ctx,clean(sec?.title||sec?.name),x+17,y+6,colW-22,secTitle)+3*continuationScale;
             const items=Array.isArray(sec?.items)?sec.items:[];
             // Fit all semantic content inside the immutable architecture card.
             // We only reduce visual typography within the approved dense floor; nothing is removed.
@@ -470,7 +476,7 @@
             // more free vertical space. Use it to improve readability instead of
             // carrying the dense first-page architecture typography forward.
             // The scale is still content-fit constrained below, so no clipping is introduced.
-            const maxScale=block.pageNumber>1 ? 1.42 : 1;
+            const maxScale=continuationScale;
             let scale=maxScale;
             const available=bottom-sy-2;
             function estimate(sc){
