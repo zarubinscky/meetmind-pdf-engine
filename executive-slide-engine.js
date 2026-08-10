@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.3.1-golden-6H1-meta-icon-baseline';
+    const ENGINE_VERSION = '1.3.3-golden-6H2.3-approved-mountain';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.3.1-6H1';
+    const CACHE_VERSION = 'golden-1.3.3-6H2.3';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
@@ -40,6 +40,10 @@
         medium: 'fonts/Inter-Medium.ttf',
         semibold: 'fonts/Inter-SemiBold.ttf',
         bold: 'fonts/Inter-Bold.ttf'
+    });
+
+    const ASSET_PATHS = Object.freeze({
+        headerMountain: 'Renderer/assets/header-mountain.png'
     });
 
     const CANONICAL_TO_RENDERER = Object.freeze({
@@ -466,6 +470,20 @@
                 fontBuffers[index]
             );
         }
+
+        // Pre-embed approved visual assets before synchronous block rendering.
+        // DrawingSurface.drawImage() becomes synchronous-in-effect for cached images,
+        // so block renderers can use ctx.image() without changing Renderer architecture.
+        const mountainBytes = new Uint8Array(
+            await fetchBytes(ASSET_PATHS.headerMountain)
+        );
+        if (!surface.pdf || !surface.images || typeof surface.pdf.embedPng !== 'function') {
+            throw new Error(
+                'Drawing Surface does not expose the image cache required for Golden header artwork.'
+            );
+        }
+        const mountainImage = await surface.pdf.embedPng(mountainBytes);
+        surface.images.set('header-mountain', mountainImage);
 
         return surface;
     }
