@@ -109,9 +109,24 @@ export function normalizeReport(report) {
 
   const rawDate =
     meeting.date ??
+    meeting.meeting_date ??
+    meeting.started_at ??
+    meeting.start_time ??
+    meeting.created_at ??
     report.date ??
     report.meeting_date ??
+    report.meetingDate ??
+    report.meeting_datetime ??
+    report.meetingDateTime ??
+    report.started_at ??
+    report.startedAt ??
+    report.start_time ??
+    report.startTime ??
+    report.metadata?.date ??
+    report.metadata?.meeting_date ??
+    report.metadata?.started_at ??
     report.created_at ??
+    report.createdAt ??
     null;
 
   return {
