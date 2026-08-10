@@ -263,7 +263,8 @@
 
         entries.forEach((e,i)=>{
             const c=colors[i]||'purplePrimary';
-            icon(ctx,STAT_ICONS[e.label]||'circle-check',x,g.y+7.5,9,c);
+            // 6H.1: stats icons share the text row baseline; do not apply a second local drop.
+            icon(ctx,STAT_ICONS[e.label]||'circle-check',x,g.y+5.2,9,c);
             ctx.text(e.label,{x:x+13,y:g.y+5.2,size:label.size,font:label.font,color:label.color});
             const lw=measure(ctx,e.label,label);
             ctx.text(e.value,{x:x+16+lw,y:g.y+5.2,size:value.size,font:value.font,color:value.color});
