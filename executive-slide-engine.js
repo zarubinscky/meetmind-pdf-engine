@@ -313,14 +313,19 @@
     function stampResolvedDensity(layoutResult) {
         const density = layoutResult.density || 'regular';
 
-        const pages = layoutResult.pages.map(page => Object.freeze({
+        const totalPages = layoutResult.pages.length;
+        const pages = layoutResult.pages.map((page, pageIndex) => Object.freeze({
             ...page,
             density,
             resolvedDensity: density,
+            totalPages,
+            pageIndicator: `${pageIndex + 1}/${totalPages}`,
             blocks: Object.freeze(
                 page.blocks.map(block => Object.freeze({
                     ...block,
-                    density
+                    density,
+                    totalPages,
+                    pageIndicator: `${pageIndex + 1}/${totalPages}`
                 }))
             )
         }));
