@@ -460,7 +460,7 @@
             const x=innerX+i*(colW+gap), bottom=g.y+g.height-sp.padY;
             ctx.rect({x,y,width:colW,height:bottom-y,fill:'cardBg',stroke:'borderDefault',borderWidth:.5,radius:3});
             const secNo=style(ctx,'architectureSectionNo',{font:'bold',size:6.5,lineHeight:7.5,color:'textPrimary'});
-            const secTitle=style(ctx,'architectureSectionTitle',{font:'bold',size:5.7,lineHeight:6.5,color:'textPrimary'});
+            const secTitle=style(ctx,'architectureSectionTitle',{font:'bold',size:6.3,lineHeight:7.7,color:'textPrimary'});
             ctx.text(String(i+1),{x:x+6,y:y+6,size:secNo.size,font:secNo.font,color:accents[i]});
             let sy=y+6+textLines(ctx,clean(sec?.title||sec?.name),x+17,y+6,colW-22,secTitle)+3;
             const items=Array.isArray(sec?.items)?sec.items:[];
@@ -475,8 +475,10 @@
             const available=bottom-sy-2;
             function estimate(sc){
                 let h=0;
-                const it={font:'semibold',size:4.8*sc,lineHeight:5.5*sc,color:'textPrimary'};
-                const ds={font:'regular',size:4.5*sc,lineHeight:5.2*sc,color:'textSecondary'};
+                const itBase=style(ctx,'architectureItemTitle',{font:'semibold',size:5.1,lineHeight:6.2,color:'textPrimary'});
+                const dsBase=style(ctx,'architectureDescription',{font:'regular',size:4.6,lineHeight:5.6,color:'textSecondary'});
+                const it={...itBase,size:itBase.size*sc,lineHeight:itBase.lineHeight*sc};
+                const ds={...dsBase,size:dsBase.size*sc,lineHeight:dsBase.lineHeight*sc};
                 items.forEach(item=>{
                     h+=wrap(ctx,clean(item?.title||item?.name||item?.label),colW-19,it).length*it.lineHeight;
                     const d=clean(item?.description||item?.text||'');
@@ -486,8 +488,10 @@
                 return h;
             }
             while(scale>.78 && estimate(scale)>available)scale-=.04;
-            const itemTitle={font:'semibold',size:4.8*scale,lineHeight:5.5*scale,color:'textPrimary'};
-            const desc={font:'regular',size:4.5*scale,lineHeight:5.2*scale,color:'textSecondary'};
+            const itemBase=style(ctx,'architectureItemTitle',{font:'semibold',size:5.1,lineHeight:6.2,color:'textPrimary'});
+            const descBase=style(ctx,'architectureDescription',{font:'regular',size:4.6,lineHeight:5.6,color:'textSecondary'});
+            const itemTitle={...itemBase,size:itemBase.size*scale,lineHeight:itemBase.lineHeight*scale};
+            const desc={...descBase,size:descBase.size*scale,lineHeight:descBase.lineHeight*scale};
             items.forEach((item,j)=>{
                 icon(ctx,iconNames[(i+j)%iconNames.length],x+5,sy,6.5,accents[i]);
                 const t=clean(item?.title||item?.name||item?.label), d=clean(item?.description||item?.text||'');
@@ -495,7 +499,14 @@
                 if(d)sy+=textLines(ctx,d,x+13,sy,colW-18,desc);
                 sy+=1.4;
             });
-            if(i<sections.length-1)ctx.text('›',{x:x+colW+gap/2-1.5,y:y+8,size:6,font:'bold',color:'textMuted'});
+            const archData=blockData(block)||{};
+            const explicitMode=clean(archData?.mode||archData?.type||archData?.layout||archData?.kind).toLowerCase();
+            const hasExplicitFlow=
+                ['flow','process','pipeline','sequence','workflow'].includes(explicitMode) ||
+                archData?.isFlow===true || archData?.is_flow===true || archData?.isProcess===true || archData?.is_process===true ||
+                (Array.isArray(archData?.edges) && archData.edges.length>0) ||
+                (Array.isArray(archData?.connections) && archData.connections.length>0);
+            if(hasExplicitFlow && i<sections.length-1)ctx.text('›',{x:x+colW+gap/2-1.5,y:y+8,size:6,font:'bold',color:'textMuted'});
         });
     }
 
