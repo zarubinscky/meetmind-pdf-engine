@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.3.0-golden-6H-render-parity';
+    const ENGINE_VERSION = '1.3.1-golden-6H1-meta-icon-baseline';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.3.0-6H';
+    const CACHE_VERSION = 'golden-1.3.1-6H1';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
