@@ -15,7 +15,7 @@
     const TITLES = {
         summary:'Executive Summary', metrics:'Key Metrics',
         insights:'Insights', decisions:'Decisions', risks:'Risks',
-        tasks:'Tasks', architecture:'Architecture', owners:'Owners'
+        tasks:'Tasks', architecture:'Architecture & Process', owners:'Owners'
     };
     const SECTION_ICONS = Object.freeze({
         summary:'sparkles', metrics:'chart-column', insights:'lightbulb',
@@ -507,11 +507,20 @@
             });
             const archData=blockData(block)||{};
             const explicitMode=clean(archData?.mode||archData?.type||archData?.layout||archData?.kind).toLowerCase();
-            const hasExplicitFlow=
+            const sectionMode=clean(sec?.mode||sec?.type||sec?.layout||sec?.kind).toLowerCase();
+            const rootFlow=
                 ['flow','process','pipeline','sequence','workflow'].includes(explicitMode) ||
-                archData?.isFlow===true || archData?.is_flow===true || archData?.isProcess===true || archData?.is_process===true ||
+                archData?.isFlow===true || archData?.is_flow===true ||
+                archData?.isProcess===true || archData?.is_process===true ||
                 (Array.isArray(archData?.edges) && archData.edges.length>0) ||
                 (Array.isArray(archData?.connections) && archData.connections.length>0);
+            const sectionFlow=
+                ['flow','process','pipeline','sequence','workflow'].includes(sectionMode) ||
+                sec?.isFlow===true || sec?.is_flow===true ||
+                sec?.isProcess===true || sec?.is_process===true ||
+                (Array.isArray(sec?.edges) && sec.edges.length>0) ||
+                (Array.isArray(sec?.connections) && sec.connections.length>0);
+            const hasExplicitFlow=rootFlow||sectionFlow;
             if(hasExplicitFlow && i<sections.length-1)ctx.text('›',{x:x+colW+gap/2-1.5,y:y+8,size:6,font:'bold',color:'textMuted'});
         });
     }
