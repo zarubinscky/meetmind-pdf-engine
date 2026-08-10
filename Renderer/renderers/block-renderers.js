@@ -63,7 +63,7 @@
         // 6E: normalize Lucide's 24x24 viewport to the visual top-left anchor.
         // pdf-lib's SVG path origin behaves differently from text/rect top-left
         // coordinates, so the visual glyph needs one viewport-height correction.
-        const drawY = y - size * 0.78;
+        const drawY = y - size * 0.95;
         const stroke=Math.max(.48,Math.min(.72,size*.055));
 
         def.nodes.forEach(([tag,a])=>{
@@ -277,7 +277,7 @@
     }
 
     function summaryParagraphs(block,report){
-        const raw=report?.summary??report?.executive_summary??report?.executiveSummary??report?.meeting_summary??blockData(block)??'';
+        const raw=blockData(block)??report?.summary??report?.executive_summary??report?.executiveSummary??report?.meeting_summary??'';
         if(Array.isArray(raw))return raw.map(textOf).filter(Boolean);
         if(raw&&typeof raw==='object'){
             const arr=raw.paragraphs||raw.items;
@@ -299,7 +299,7 @@
         const source=paragraphs.length?paragraphs:['—'];
         source.forEach((paragraph,index)=>{
             if(y>=bottom)return;
-            const lines=wrap(ctx,paragraph,s,innerW);
+            const lines=wrap(ctx,paragraph,innerW,s);
             for(const line of lines){
                 if(y+s.lineHeight>bottom)return;
                 ctx.text(line,{x:g.x+sp.padX,y,size:s.size,font:s.font,color:s.color});
@@ -524,7 +524,7 @@
 
 
     host.blockRenderers=Object.freeze({
-        version:'1.5.1-golden-6E5-icons-restored',
+        version:'1.5.2-golden-6G-corrective',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
