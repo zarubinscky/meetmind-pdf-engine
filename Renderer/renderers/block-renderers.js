@@ -409,7 +409,7 @@
         const g=block.geometry; card(ctx,g);
         const sp=spacing(ctx); let y=sectionHeader(ctx,g,TITLES.tasks,'purplePrimary');
         const tasks=tasksFrom(block,ctx.report||{});
-        const taskScale=Math.max(1,Math.min(1.32,Number(block?.layout?.contentScale)||1));
+        const taskScale=Math.max(1,Math.min(1.55,Number(block?.layout?.contentScale)||1));
         const hsBase=style(ctx,'taskHeader',{font:'semibold',size:4.8,lineHeight:5.6,color:'textSecondary'});
         const csBase=style(ctx,'taskCell',{font:'regular',size:4.8,lineHeight:5.8,color:'textPrimary'});
         const hs={...hsBase,size:hsBase.size*taskScale,lineHeight:hsBase.lineHeight*taskScale};
@@ -421,7 +421,9 @@
         y+=hs.lineHeight+4;
         ctx.line({x1:innerX,y1:y-1,x2:innerX+innerW,y2:y-1,color:'dividerDefault',thickness:.35});
 
-        tasks.forEach((t,i)=>{
+        // Measure rows first, then distribute genuinely unused card height across rows.
+        // This is geometry-driven: no task count, benchmark, language or text is hardcoded.
+        const preparedTasks=tasks.map(t=>{
             const task=clean(t?.task||t?.title||t?.description||t?.text);
             const owner=clean(t?.owner?.name||t?.owner||'');
             const due=clean(t?.due_date||t?.dueDate||t?.deadline||'');
@@ -429,16 +431,25 @@
             const ownerLines=wrap(ctx,owner,ownerW-5,cs);
             const dueLines=wrap(ctx,due,dueW-5,cs);
             const lines=Math.max(1,taskLines.length,ownerLines.length,dueLines.length);
-            const rowH=Math.max(9,lines*cs.lineHeight+3);
+            return {task,owner,due,taskLines,ownerLines,dueLines,rowH:Math.max(cs.lineHeight+3,lines*cs.lineHeight+3)};
+        });
+        const contentBottom=g.y+g.height-sp.padY;
+        const naturalRowsH=preparedTasks.reduce((sum,r)=>sum+r.rowH,0);
+        const freeRowsH=Math.max(0,contentBottom-y-naturalRowsH);
+        const adaptiveRowGap=preparedTasks.length
+            ? Math.min(freeRowsH/preparedTasks.length,cs.lineHeight*1.35)
+            : 0;
+
+        preparedTasks.forEach((r,i)=>{
             ctx.text(String(i+1),{x:xs[0]+2,y:y+2,size:cs.size,font:cs.font,color:cs.color});
-            taskLines.forEach((l,j)=>ctx.text(l,{x:xs[1]+2,y:y+2+j*cs.lineHeight,size:cs.size,font:cs.font,color:cs.color}));
-            ownerLines.forEach((l,j)=>ctx.text(l,{x:xs[2]+2,y:y+2+j*cs.lineHeight,size:cs.size,font:cs.font,color:cs.color}));
-            if(due){
-                const pillW=Math.min(dueW-4,measure(ctx,due,cs)+8);
+            r.taskLines.forEach((l,j)=>ctx.text(l,{x:xs[1]+2,y:y+2+j*cs.lineHeight,size:cs.size,font:cs.font,color:cs.color}));
+            r.ownerLines.forEach((l,j)=>ctx.text(l,{x:xs[2]+2,y:y+2+j*cs.lineHeight,size:cs.size,font:cs.font,color:cs.color}));
+            if(r.due){
+                const pillW=Math.min(dueW-4,measure(ctx,r.due,cs)+8);
                 ctx.rect({x:xs[3]+2,y:y+1,width:pillW,height:cs.lineHeight+3,fill:'purpleSoft',stroke:'purpleSoft',borderWidth:0,radius:3});
-                dueLines.slice(0,1).forEach(l=>ctx.text(l,{x:xs[3]+6,y:y+2,size:cs.size,font:'medium',color:'purplePrimary'}));
+                r.dueLines.slice(0,1).forEach(l=>ctx.text(l,{x:xs[3]+6,y:y+2,size:cs.size,font:'medium',color:'purplePrimary'}));
             }
-            y+=rowH;
+            y+=r.rowH+adaptiveRowGap;
             ctx.line({x1:innerX,y1:y,x2:innerX+innerW,y2:y,color:'dividerDefault',thickness:.25});
         });
     }
@@ -462,7 +473,7 @@
         sections.forEach((sec,i)=>{
             const x=innerX+i*(colW+gap), bottom=g.y+g.height-sp.padY;
             ctx.rect({x,y,width:colW,height:bottom-y,fill:'cardBg',stroke:'borderDefault',borderWidth:.5,radius:3});
-            const continuationScale=Math.max(1,Math.min(1.32,Number(block?.layout?.contentScale)||1));
+            const continuationScale=Math.max(1,Math.min(1.55,Number(block?.layout?.contentScale)||1));
             const secNoBase=style(ctx,'architectureSectionNo',{font:'bold',size:6.5,lineHeight:7.5,color:'textPrimary'});
             const secTitleBase=style(ctx,'architectureSectionTitle',{font:'bold',size:6.3,lineHeight:7.7,color:'textPrimary'});
             const secNo={...secNoBase,size:secNoBase.size*continuationScale,lineHeight:secNoBase.lineHeight*continuationScale};
@@ -498,12 +509,29 @@
             const descBase=style(ctx,'architectureDescription',{font:'regular',size:4.6,lineHeight:5.6,color:'textSecondary'});
             const itemTitle={...itemBase,size:itemBase.size*scale,lineHeight:itemBase.lineHeight*scale};
             const desc={...descBase,size:descBase.size*scale,lineHeight:descBase.lineHeight*scale};
+
+            // Compute the actual rendered semantic height, then convert only true surplus
+            // into inter-item breathing room. Works for any language/content length.
+            const naturalItemHeights=items.map(item=>{
+                const t=clean(item?.title||item?.name||item?.label);
+                const d=clean(item?.description||item?.text||'');
+                let h=wrap(ctx,t,colW-18,itemTitle).length*itemTitle.lineHeight;
+                if(d)h+=wrap(ctx,d,colW-18,desc).length*desc.lineHeight;
+                return h;
+            });
+            const naturalItemsH=naturalItemHeights.reduce((sum,h)=>sum+h,0);
+            const semanticGaps=Math.max(0,items.length-1);
+            const spareH=Math.max(0,bottom-sy-naturalItemsH);
+            const adaptiveSemanticGap=semanticGaps
+                ? Math.min(spareH/semanticGaps,itemTitle.lineHeight*1.15)
+                : 0;
+
             items.forEach((item,j)=>{
-                icon(ctx,iconNames[(i+j)%iconNames.length],x+5,sy,6.5,accents[i]);
+                icon(ctx,iconNames[(i+j)%iconNames.length],x+5,sy,6.5*scale,accents[i]);
                 const t=clean(item?.title||item?.name||item?.label), d=clean(item?.description||item?.text||'');
                 sy+=textLines(ctx,t,x+13,sy,colW-18,itemTitle);
                 if(d)sy+=textLines(ctx,d,x+13,sy,colW-18,desc);
-                sy+=1.4;
+                if(j<items.length-1)sy+=adaptiveSemanticGap;
             });
             const archData=blockData(block)||{};
             const explicitMode=clean(archData?.mode||archData?.type||archData?.layout||archData?.kind).toLowerCase();
