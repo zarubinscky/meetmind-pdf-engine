@@ -228,23 +228,20 @@
         textLines(ctx,title,left,g.y+3,g.width-150,titleS);
 
         const meta=[date,time].filter(Boolean).join('   |   ');
-        const indicator=clean(block.pageIndicator||((block.totalPages>1)?`${block.pageNumber}/${block.totalPages}`:''));
-        const metaText=[meta,indicator].filter(Boolean).join('   |   ');
-        if(metaText)ctx.text(metaText,{x:left,y:g.y+24,size:metaS.size,font:metaS.font,color:metaS.color});
-
-        // Approved mountain is hero artwork: page 1 only. Continuation pages
-        // retain title/date/page indicator but intentionally omit the hero image.
-        if(block.isFirstPage!==false){
-            const artW=116, artH=54;
-            const artX=g.x+g.width-artW-5;
-            const artY=g.y+0.5;
-            if(typeof ctx.image==='function'){
-                ctx.image(
-                    'header-mountain',
-                    new Uint8Array(0),
-                    {x:artX,y:artY,width:artW,height:artH}
-                );
-            }
+        if(meta)ctx.text(meta,{x:left,y:g.y+24,size:metaS.size,font:metaS.font,color:metaS.color});
+        // 6H.2.3: approved Golden Template mountain artwork.
+        // The asset is extracted from the approved designer reference and pre-embedded
+        // by executive-slide-engine.js before synchronous rendering begins.
+        // It is deliberately kept inside the Header's right-side visual safe area.
+        const artW=116, artH=54;
+        const artX=g.x+g.width-artW-5;
+        const artY=g.y+0.5;
+        if(typeof ctx.image==='function'){
+            ctx.image(
+                'header-mountain',
+                new Uint8Array(0),
+                {x:artX,y:artY,width:artW,height:artH}
+            );
         }
 
 
@@ -544,7 +541,7 @@
 
 
     host.blockRenderers=Object.freeze({
-        version:'1.7.0-golden-6H3-pagination-chrome',
+        version:'1.6.3-golden-6H2.3-approved-mountain-asset',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
