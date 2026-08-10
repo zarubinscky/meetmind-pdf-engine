@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.4.1-adaptive-source-of-truth';
+    const ENGINE_VERSION = '1.4.2-adaptive-spacing';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.4.1-adaptive-source-of-truth';
+    const CACHE_VERSION = 'golden-1.4.2-adaptive-spacing';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
