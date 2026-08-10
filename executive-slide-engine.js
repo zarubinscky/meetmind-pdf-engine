@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.4.0-golden-6H3-adaptive-pagination';
+    const ENGINE_VERSION = '1.3.3-golden-6H2.3-approved-mountain';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.4.0-6H3';
+    const CACHE_VERSION = 'golden-1.3.3-6H2.3';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
@@ -313,21 +313,14 @@
     function stampResolvedDensity(layoutResult) {
         const density = layoutResult.density || 'regular';
 
-        const totalPages = layoutResult.pages.length;
-        const pages = layoutResult.pages.map((page, pageIndex) => Object.freeze({
+        const pages = layoutResult.pages.map(page => Object.freeze({
             ...page,
-            totalPages,
-            pageIndicator: totalPages > 1 ? `${pageIndex + 1}/${totalPages}` : null,
             density,
             resolvedDensity: density,
             blocks: Object.freeze(
                 page.blocks.map(block => Object.freeze({
                     ...block,
-                    density,
-                    pageNumber: pageIndex + 1,
-                    totalPages,
-                    pageIndicator: totalPages > 1 ? `${pageIndex + 1}/${totalPages}` : null,
-                    isFirstPage: pageIndex === 0
+                    density
                 }))
             )
         }));
