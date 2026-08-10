@@ -272,9 +272,16 @@
             h += sp.bulletGap;
         }
 
-        // Renderer does not clip. Reserve the same visual bottom inset so that
-        // the next semantic row can never start on top of the final list line.
-        h += sp.padY;
+        // Renderer does not clip. Reserve a SYSTEM-WIDE optical safe area
+        // below the final semantic line. This applies equally to Insights,
+        // Decisions, Risks and any future list block routed through measureList.
+        // It is NOT a Decisions-specific fixed-height workaround.
+        const bottomSafeExtra =
+            density === 'dense' ? 2.0 :
+            density === 'compact' ? 2.5 :
+            3.0;
+
+        h += sp.padY + bottomSafeExtra;
 
         return Math.max(32, h);
     }
@@ -632,7 +639,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.7.0-6E5-render-measure-parity',
+        version: 'golden-1.7.1-6E6-safe-padding',
         PAGE,
         MODES,
         layout
