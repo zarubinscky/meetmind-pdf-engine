@@ -587,6 +587,15 @@ function isEmptyBlock(id, data) {
   if (id === BLOCK_IDS.MEETING_STATS && isPlainObject(data)) {
     return Object.values(data).every(isEmptyValue);
   }
+
+  // Architecture is frequently represented as { sections: [] }.
+  // Treat that shape as semantically empty so the PDF never renders
+  // an empty Architecture card when the Web Report has no architecture.
+  if (id === BLOCK_IDS.ARCHITECTURE && isPlainObject(data)) {
+    if (Array.isArray(data.sections)) return data.sections.length === 0;
+    if (Array.isArray(data.items)) return data.items.length === 0;
+  }
+
   return isEmptyValue(data);
 }
 
