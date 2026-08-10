@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.4.2-adaptive-spacing';
+    const ENGINE_VERSION = '1.4.3-i18n';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.4.2-adaptive-spacing';
+    const CACHE_VERSION = 'golden-1.4.3-i18n';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
@@ -541,6 +541,8 @@
     }
 
     async function generate(report, options = {}) {
+        const language = options.interface_language || options.interfaceLanguage || options.language || options.locale || report?.interface_language || report?.interfaceLanguage || report?.language || report?.locale || report?.metadata?.interface_language || report?.metadata?.language || report?.user?.interface_language || 'en';
+        report = Object.freeze({ ...report, _pdfLanguage: language });
         if (!isPlainObject(report)) {
             throw new TypeError(
                 'ExecutiveSlideEngine.generate(report): report must be an object.'
