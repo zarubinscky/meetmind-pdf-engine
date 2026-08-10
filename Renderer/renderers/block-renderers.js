@@ -566,14 +566,14 @@
     function initials(name){return clean(name).split(/\s+/).slice(0,2).map(p=>p[0]||'').join('').toUpperCase();}
     function renderOwners(block,ctx){
         const g=block.geometry; const sp=spacing(ctx);
-        const title=style(ctx,'blockTitle',{font:'bold',size:8.2,lineHeight:9.8,color:'textPrimary'});
-        const titleY=g.y+Math.max(5,(g.height-title.lineHeight)/2);
+        const titleStyle=style(ctx,'blockTitle',{font:'bold',size:8.2,lineHeight:9.8,color:'textPrimary'});
+        const titleY=g.y+Math.max(5,(g.height-titleStyle.lineHeight)/2);
 
         icon(ctx,'users',g.x+sp.padX,titleY+3.2,9.2,'purplePrimary');
         ctx.text(title(ctx,'owners'),{
             x:g.x+sp.padX+13.2,
             y:titleY,
-            size:title.size,font:title.font,color:'textPrimary'
+            size:titleStyle.size,font:titleStyle.font,color:'textPrimary'
         });
 
         const owners=ownersFrom(block,ctx.report||{});
