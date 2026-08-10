@@ -678,7 +678,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.7.0-adaptive-continuation',
+        version: 'golden-1.7.1-adaptive-source-of-truth',
         PAGE,
         MODES,
         layout
