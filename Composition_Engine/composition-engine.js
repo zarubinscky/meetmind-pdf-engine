@@ -2,6 +2,7 @@
  * MeetMind Executive PDF Engine
  * Composition Engine v1.0
  *
+ 
  * Responsibilities:
  * - normalize report_json into canonical block data;
  * - apply visibility and empty-block filtering;
@@ -85,6 +86,7 @@ export function composeExecutiveReport(report, options = {}) {
     measured,
     visibleIds,
   });
+
 
   return Object.freeze({
     version: "1.0",
@@ -175,6 +177,8 @@ function measureAllBlocks(normalized, visibility, preferredDensity) {
       density,
       visible,
       required,
+      // Filled later by Layout Engine.
+      layout: null,
     });
   }
 
@@ -263,6 +267,7 @@ function createPage({ index, totalPages, title, date, blockIds, measured }) {
     date,
     pageIndicator,
     blockIds: Object.freeze(blockIds.slice()),
+    blocks: Object.freeze(blockIds.map((id) => measured[id])),
     regions: Object.freeze(regions),
     estimatedMass: round(sumMass(blockIds, measured)),
   });
@@ -582,30 +587,6 @@ function isEmptyBlock(id, data) {
   if (id === BLOCK_IDS.MEETING_STATS && isPlainObject(data)) {
     return Object.values(data).every(isEmptyValue);
   }
-
-  // 6H3: Architecture is renderable only when it contains at least one
-  // real section/item. Supabase/Web Report can legitimately expose an
-  // empty architecture object; that must not create an empty PDF card.
-  if (id === BLOCK_IDS.ARCHITECTURE) {
-    if (Array.isArray(data)) return data.length === 0;
-    if (!isPlainObject(data)) return isEmptyValue(data);
-
-    const sections = Array.isArray(data.sections) ? data.sections : [];
-    if (sections.length) {
-      return !sections.some((section) => {
-        if (!isPlainObject(section)) return !isEmptyValue(section);
-        const title = String(section.title ?? section.name ?? '').trim();
-        const items = Array.isArray(section.items) ? section.items : [];
-        return Boolean(title) || items.some((item) => !isEmptyValue(item));
-      });
-    }
-
-    const items = Array.isArray(data.items) ? data.items : [];
-    if (items.length) return !items.some((item) => !isEmptyValue(item));
-
-    return true;
-  }
-
   return isEmptyValue(data);
 }
 
