@@ -14,9 +14,9 @@
     'use strict';
 
     const ENGINE_NAME = 'ExecutiveSlideEngine';
-    const ENGINE_VERSION = '1.3.3-golden-6H2.3-approved-mountain';
+    const ENGINE_VERSION = '1.4.0-adaptive-continuation';
     const ENGINE_BASE = 'https://zarubinscky.github.io/meetmind-pdf-engine/';
-    const CACHE_VERSION = 'golden-1.3.3-6H2.3';
+    const CACHE_VERSION = 'golden-1.4.0-adaptive-continuation';
 
     const PDF_LIB_CDN =
         'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
@@ -314,21 +314,24 @@
         const density = layoutResult.density || 'regular';
 
         const totalPages = layoutResult.pages.length;
-        const pages = layoutResult.pages.map((page, pageIndex) => Object.freeze({
-            ...page,
-            density,
-            resolvedDensity: density,
-            totalPages,
-            pageIndicator: `${pageIndex + 1}/${totalPages}`,
-            blocks: Object.freeze(
-                page.blocks.map(block => Object.freeze({
-                    ...block,
-                    density,
-                    totalPages,
-                    pageIndicator: `${pageIndex + 1}/${totalPages}`
-                }))
-            )
-        }));
+        const pages = layoutResult.pages.map((page, pageIndex) => {
+            const pageDensity = page.density || page.resolvedDensity || density;
+            return Object.freeze({
+                ...page,
+                density: pageDensity,
+                resolvedDensity: pageDensity,
+                totalPages,
+                pageIndicator: `${pageIndex + 1}/${totalPages}`,
+                blocks: Object.freeze(
+                    page.blocks.map(block => Object.freeze({
+                        ...block,
+                        density: block?.layout?.density || block?.density || pageDensity,
+                        totalPages,
+                        pageIndicator: `${pageIndex + 1}/${totalPages}`
+                    }))
+                )
+            });
+        });
 
         return Object.freeze({
             ...layoutResult,
