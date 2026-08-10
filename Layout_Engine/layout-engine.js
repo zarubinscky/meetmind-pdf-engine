@@ -497,7 +497,7 @@
         // Page-aware density is derived from actual free space, never from report values or benchmark names.
         // Cap keeps typography within the approved design range while allowing sparse continuation pages to breathe.
         const contentScale = naturalContentH > 0
-            ? Math.max(1, Math.min(1.32, availableContentH / naturalContentH))
+            ? Math.max(1, Math.min(1.55, availableContentH / naturalContentH))
             : 1;
 
         natural.forEach((item, index) => {
@@ -678,7 +678,7 @@
     }
 
     global.MeetMindLayoutEngine = Object.freeze({
-        version: 'golden-1.7.1-adaptive-source-of-truth',
+        version: 'golden-1.7.2-adaptive-spacing',
         PAGE,
         MODES,
         layout
