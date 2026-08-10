@@ -230,13 +230,17 @@
         const meta=[date,time].filter(Boolean).join('   |   ');
         if(meta)ctx.text(meta,{x:left,y:g.y+24,size:metaS.size,font:metaS.font,color:metaS.color});
 
-        // 6E keeps the current vector placeholder geometry.
-        // Final mountain artwork remains a separate asset-polish step.
-        const rx=g.x+g.width-108, by=g.y+28;
-        ctx.line({x1:rx,y1:by,x2:rx+27,y2:by-18,color:'purpleSoft',thickness:1.4});
-        ctx.line({x1:rx+27,y1:by-18,x2:rx+52,y2:by,color:'purpleSoft',thickness:1.4});
-        ctx.line({x1:rx+52,y1:by,x2:rx+79,y2:by-25,color:'purplePrimary',thickness:1.6});
-        ctx.line({x1:rx+79,y1:by-25,x2:rx+106,y2:by,color:'purplePrimary',thickness:1.6});
+        // 6H.2: designer-reference mountain. Keep it vector-native so the PDF stays sharp
+        // and does not depend on an external raster asset. The silhouette is intentionally
+        // compact and right-aligned; the flag marks the strategic destination.
+        const mx=g.x+g.width-112, my=g.y+4;
+        const mountain='M 1 23 L 8 20 L 15 15 L 21 18 L 29 10 L 35 14 L 43 6 L 50 12 L 57 4 L 64 11 L 72 15 L 80 23 Z';
+        const ridge='M 8 20 L 21 18 L 29 10 L 35 14 L 43 6 L 50 12 L 57 4 L 64 11 L 72 15';
+        ctx.svgPath(mountain,{x:mx,y:my+4,size:88,fill:'purpleSoft',stroke:'purpleSoft',borderWidth:.15,opacity:.78});
+        ctx.svgPath(ridge,{x:mx,y:my+4,size:88,stroke:'purplePrimary',borderWidth:.65,opacity:.72});
+        // summit mast + flag
+        ctx.line({x1:mx+64,y1:my+7,x2:mx+64,y2:my+1,color:'purplePrimary',thickness:.8});
+        ctx.svgPath('M 0 0 L 7 2.2 L 0 4.4 Z',{x:mx+64,y:my,size:8,fill:'purplePrimary',stroke:'purplePrimary',borderWidth:.2});
     }
 
     function statEntries(report){
@@ -533,7 +537,7 @@
 
 
     host.blockRenderers=Object.freeze({
-        version:'1.6.0-golden-6H-render-parity',
+        version:'1.6.1-golden-6H2-mountain',
         header:renderHeader,
         stats:renderStats,
         meetingStats:renderStats,
