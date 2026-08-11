@@ -327,7 +327,9 @@
                         ...block,
                         density: block?.layout?.density || block?.density || pageDensity,
                         totalPages,
-                        pageIndicator: `${pageIndex + 1}/${totalPages}`
+                        pageIndicator: totalPages > 1
+                            ? `${pageIndex + 1}/${totalPages}`
+                            : null
                     }))
                 )
             });
