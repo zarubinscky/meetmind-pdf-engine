@@ -581,7 +581,7 @@
         const init=style(ctx,'ownerInitials',{font:'bold',size:5.2,lineHeight:6,color:'purplePrimary'});
 
         // Reserve the right side for footer branding; owners stay in one row.
-        const startX=g.x+70;
+        const startX=g.x+84;
         const footerReserve=150;
         const available=Math.max(220,g.width-78-footerReserve);
         const itemW=available/Math.max(1,owners.length);
