@@ -321,7 +321,7 @@
                 density: pageDensity,
                 resolvedDensity: pageDensity,
                 totalPages,
-                pageIndicator: `${pageIndex + 1}/${totalPages}`,
+                pageIndicator: totalPages > 1 ? `${pageIndex + 1}/${totalPages}` : null,
                 blocks: Object.freeze(
                     page.blocks.map(block => Object.freeze({
                         ...block,
