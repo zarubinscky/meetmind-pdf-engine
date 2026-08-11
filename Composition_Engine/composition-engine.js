@@ -153,14 +153,49 @@ export function normalizeReport(report) {
   };
 }
 
+function normalizeCompositionVisibility(visibility = {}) {
+  if (!isPlainObject(visibility)) return {};
+
+  const aliases = {
+    stats: BLOCK_IDS.MEETING_STATS,
+    meeting_stats: BLOCK_IDS.MEETING_STATS,
+    summary: BLOCK_IDS.EXECUTIVE_SUMMARY,
+    executive_summary: BLOCK_IDS.EXECUTIVE_SUMMARY,
+    metrics: BLOCK_IDS.KEY_METRICS,
+    key_metrics: BLOCK_IDS.KEY_METRICS,
+    insights: BLOCK_IDS.INSIGHTS,
+    decisions: BLOCK_IDS.DECISIONS,
+    risks: BLOCK_IDS.RISKS,
+    tasks: BLOCK_IDS.TASKS,
+    architecture: BLOCK_IDS.ARCHITECTURE,
+    owners: BLOCK_IDS.OWNERS,
+  };
+
+  const normalized = {};
+
+  for (const [rawKey, rawValue] of Object.entries(visibility)) {
+    const key = String(rawKey || "")
+      .trim()
+      .replace(/([a-z])([A-Z])/g, "$1_$2")
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+
+    const id = aliases[key] || rawKey;
+    normalized[id] = Boolean(rawValue);
+  }
+
+  return normalized;
+}
+
 function measureAllBlocks(normalized, visibility, preferredDensity) {
   /** @type {Record<string, import("./composition-types.js").MeasuredBlock>} */
   const result = {};
+  const resolvedVisibility = normalizeCompositionVisibility(visibility);
 
   for (const id of CANONICAL_ORDER) {
     const data = normalized[id];
     const required = ALWAYS_VISIBLE.has(id);
-    const enabled = required || visibility[id] !== false;
+    const enabled = required || resolvedVisibility[id] !== false;
     const empty = !required && isEmptyBlock(id, data);
     const visible = enabled && !empty;
 
