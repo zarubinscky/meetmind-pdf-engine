@@ -23,7 +23,14 @@ export class RenderContext {
     const width = Number(size.width || root.defaultPageSize[0]);
     const height = Number(size.height || root.defaultPageSize[1]);
     const density = pageSpec.resolvedDensity || pageSpec.density || 'regular';
+    const rawLanguage = String(
+      root.report?._pdfLanguage || root.report?.report_language || root.report?.language || ''
+    ).trim().toLowerCase().replace(/_/g, '-');
+    const isRtl = ['ar', 'fa'].includes(rawLanguage.split('-')[0]);
     let page = null;
+
+    const mirrorX = (x, objectWidth = 0) =>
+      isRtl ? width - Number(x || 0) - Number(objectWidth || 0) : Number(x || 0);
 
     function color(value) {
       if (!value) return undefined;
@@ -60,11 +67,14 @@ export class RenderContext {
       text(value, options = {}) {
         const sizePt = Number(options.size || 8);
         const topY = Number(options.y || 0);
-        return root.surface.drawText(String(value ?? ''), {
-          x: Number(options.x || 0),
+        const renderedValue = String(value ?? '');
+        const renderedFont = font(options.font);
+        const textWidth = isRtl ? renderedFont.widthOfTextAtSize(renderedValue, sizePt) : 0;
+        return root.surface.drawText(renderedValue, {
+          x: mirrorX(options.x, textWidth),
           y: height - topY - sizePt,
           size: sizePt,
-          font: font(options.font),
+          font: renderedFont,
           color: color(options.color),
           rotate: options.rotate
         });
@@ -74,7 +84,7 @@ export class RenderContext {
         const h = Number(options.height || 0);
         const topY = Number(options.y || 0);
         return root.surface.drawRect({
-          x: Number(options.x || 0),
+          x: mirrorX(options.x, Number(options.width || 0)),
           y: height - topY - h,
           width: Number(options.width || 0),
           height: h,
@@ -90,8 +100,8 @@ export class RenderContext {
         const start = options.start || { x: options.x1, y: options.y1 };
         const end = options.end || { x: options.x2, y: options.y2 };
         return root.surface.drawLine({
-          start: { x: Number(start.x || 0), y: height - Number(start.y || 0) },
-          end: { x: Number(end.x || 0), y: height - Number(end.y || 0) },
+          start: { x: mirrorX(start.x), y: height - Number(start.y || 0) },
+          end: { x: mirrorX(end.x), y: height - Number(end.y || 0) },
           thickness: Number(options.thickness || options.width || 1),
           color: color(options.color || options.stroke)
         });
@@ -99,7 +109,7 @@ export class RenderContext {
 
       circle(options = {}) {
         return root.surface.drawCircle({
-          x: Number(options.x || 0),
+          x: mirrorX(options.x),
           y: height - Number(options.y || 0),
           radius: Number(options.radius || options.size || 1),
           size: Number(options.size || options.radius || 1),
@@ -114,7 +124,7 @@ export class RenderContext {
         const scale = size / 24;
         const topY = Number(options.y || 0);
         return root.surface.drawSvgPath(path, {
-          x: Number(options.x || 0),
+          x: mirrorX(options.x, size),
           // pdf-lib SVG paths use their own local Y axis. Anchor the 24x24
           // icon viewport at the requested top-left position.
           y: height - topY - size,
@@ -130,6 +140,7 @@ export class RenderContext {
         const h = Number(options.height || 0);
         return root.surface.drawImage(key, bytes, {
           ...options,
+          x: mirrorX(options.x, Number(options.width || 0)),
           y: height - Number(options.y || 0) - h
         });
       },
