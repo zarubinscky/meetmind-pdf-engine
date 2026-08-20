@@ -42,6 +42,43 @@
         bold: 'fonts/Inter-Bold.ttf'
     });
 
+    // Unicode font packs are selected per report language. Keep the existing
+    // Inter contract for Latin/Cyrillic languages; only scripts that Inter
+    // cannot render switch to dedicated families.
+    const UNICODE_FONT_PATHS = Object.freeze({
+        ar: {
+            regular: 'fonts/NotoSansArabic-Variable.ttf',
+            medium: 'fonts/NotoSansArabic-Variable.ttf',
+            semibold: 'fonts/NotoSansArabic-Variable.ttf',
+            bold: 'fonts/NotoSansArabic-Variable.ttf'
+        },
+        fa: {
+            regular: 'fonts/NotoSansArabic-Variable.ttf',
+            medium: 'fonts/NotoSansArabic-Variable.ttf',
+            semibold: 'fonts/NotoSansArabic-Variable.ttf',
+            bold: 'fonts/NotoSansArabic-Variable.ttf'
+        },
+        hi: {
+            regular: 'fonts/NotoSansDevanagari-Variable.ttf',
+            medium: 'fonts/NotoSansDevanagari-Variable.ttf',
+            semibold: 'fonts/NotoSansDevanagari-Variable.ttf',
+            bold: 'fonts/NotoSansDevanagari-Variable.ttf'
+        }
+    });
+
+    function normalizeLanguage(value) {
+        const raw = String(value || 'en').trim().toLowerCase().replace(/_/g, '-');
+        const base = raw.split('-')[0];
+        return base === 'in' ? 'id' : base;
+    }
+
+    function resolveFontPaths(options = {}) {
+        const language = normalizeLanguage(
+            options.language || options.report_language || options.reportLanguage
+        );
+        return UNICODE_FONT_PATHS[language] || FONT_PATHS;
+    }
+
     const ASSET_PATHS = Object.freeze({
         headerMountain: 'Renderer/assets/header-mountain.png'
     });
@@ -461,13 +498,13 @@
         return dependenciesPromise;
     }
 
-    async function createSurface(dependencies) {
+    async function createSurface(dependencies, language) {
         const surface = await dependencies.DrawingSurface.create({
             PDFDocument: dependencies.pdfLib.PDFDocument,
             fontkit: dependencies.fontkit
         });
 
-        const fontEntries = Object.entries(FONT_PATHS);
+        const fontEntries = Object.entries(resolveFontPaths({ language }));
 
         const fontBuffers = await Promise.all(
             fontEntries.map(([, path]) => fetchBytes(path))
@@ -559,7 +596,7 @@
 
         // Register Inter BEFORE layout so physical fit is measured with
         // the same real glyph widths that Renderer will draw.
-        const surface = await createSurface(dependencies);
+        const surface = await createSurface(dependencies, language);
 
         const rawCompositionResult = dependencies.compose(
             report,
